@@ -1,6 +1,7 @@
 """Track metadata from tags, with a filename fallback.
 
-Metadata is used for exactly one thing: looking lyrics up. Nothing here can fail a job.
+Tags are read to look lyrics up, and copied onto the cleaned file so a player still
+shows the song. Nothing here can fail a job.
 If mutagen cannot read the file, or the tags are empty, or the filename is a bare name, the
 result is simply less specific and the lyrics stage falls back to a fuzzy search.
 
@@ -13,7 +14,9 @@ five songs in the spike; taking the first credit matched all five.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import subprocess
 from pathlib import Path
 
 from mutagen import File, MutagenError
@@ -183,6 +186,56 @@ def _read_tags(path: Path) -> dict[str, str]:
         if text:
             tags.setdefault(name, text)
     return tags
+
+
+def copy_metadata(source: Path, dest: Path) -> bool:
+    """Copy tags and cover art from `source` onto `dest` without re-encoding.
+
+    The cleaned file is a new encode, so a player would otherwise show a blank song.
+    Cover art is an attached picture. A format that cannot store one (WAV) keeps the
+    text tags. A failed copy leaves `dest` untouched.
+    """
+    source, dest = Path(source), Path(dest)
+    if not source.is_file() or not dest.is_file():
+        logger.info("skipping tag copy; %s or %s is missing", source.name, dest.name)
+        return False
+    audio_io.check_ffmpeg()
+    temp = dest.with_name(f".{dest.stem}.tagging{dest.suffix}")
+    # Pictures first. WAV rejects a video stream, so the second attempt is tags only.
+    for pictures in (True, False):
+        if _ffmpeg(_tag_command(source, dest, temp, pictures=pictures)) and temp.stat().st_size > 0:
+            os.replace(temp, dest)
+            logger.info("copied tags from %s onto %s", source.name, dest.name)
+            return True
+        temp.unlink(missing_ok=True)
+    logger.warning("could not copy tags from %s onto %s", source.name, dest.name)
+    return False
+
+
+def _tag_command(source: Path, dest: Path, temp: Path, *, pictures: bool) -> list[str]:
+    """Remux `dest`'s audio with the tags (and, optionally, the cover) from `source`."""
+    command = [
+        "ffmpeg", "-v", "error", "-y",
+        "-i", str(dest), "-i", str(source),
+        "-map", "0:a:0",
+    ]
+    if pictures:
+        # `v` includes attached pictures; `V` is every other video stream. Mapping `v`
+        # and then dropping `V` keeps the cover and leaves a music video behind.
+        command += ["-map", "1:v?", "-map", "-1:V?", "-disposition:v:0", "attached_pic"]
+    command += ["-map_metadata", "1", "-c", "copy", str(temp)]
+    return command
+
+
+def _ffmpeg(command: list[str]) -> bool:
+    try:
+        subprocess.run(command, capture_output=True, text=True, timeout=300, check=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        detail = getattr(exc, "stderr", None) or str(exc)
+        last = str(detail).strip().splitlines()
+        logger.info("tag copy attempt failed: %s", last[-1] if last else exc)
+        return False
+    return True
 
 
 def _tag_text(value: object) -> str:

@@ -173,9 +173,16 @@ def _render(result: PipelineResult, output_path: Path, export_format: str) -> re
         result.censor_spans(),
         output_path,
         export_format=export_format,
+        tags_from=_original_audio(result.job_dir),
     )
     logger.info("render took %.1fs", time.perf_counter() - started)
     return stats
+
+
+def _original_audio(job_dir: Path) -> Path | None:
+    """The untouched upload in a job directory, if this job kept one."""
+    matches = sorted(Path(job_dir).glob("original.*"))
+    return matches[0] if matches else None
 
 
 def _output_path(

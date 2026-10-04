@@ -91,7 +91,8 @@ SUPPORTED_EXPORT_FORMATS = ("flac", "wav", "mp3")
 # Normalisation: collapse runs of repeated letters down to one, but never collapse a
 # genuine 2-letter token (it, an, as, be, do...) into nothing.
 COLLAPSE_MIN_REPEATS = 3
-# Suffixes stripped when probing a token against the list.
+# Suffixes stripped when probing a token against the list. Every suffix that
+# fits is applied, not only the first; see detect._inflection_stems.
 PEELABLE_SUFFIXES = ("ing", "ings", "ed", "er", "ers", "est", "s")
 
 # --- Lyrics (best effort, never blocking) ---------------------------------------

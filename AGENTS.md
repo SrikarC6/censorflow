@@ -115,7 +115,7 @@ beat up; we match that punch size. A modest tail still covers a stretched vowel.
 
 ## Profanity detection
 
-- Word list lives in `data/profanity.txt` (seed it from `better-profanity`'s built-in list; verify its API with Context7). User additions go in `data/profanity_extra.txt`; exceptions in `data/allowlist.txt`. The list is DATA, not code.
+- Word list lives in `data/profanity.txt`. Severe swears and insults only: the fuck / shit / bitch / n-word / pussy / ass / cum / cunt / whore family, close compounds and spellings, and insults of that severity. Mild words, drug names, and clinical terms stay off it. User additions go in `data/profanity_extra.txt`; exceptions in `data/allowlist.txt`. The list is DATA, not code.
 - Normalize before matching: lowercase, strip punctuation, collapse runs of repeated letters (also test the 2-letter collapse), expand obvious asterisk or symbol masking, handle common suffixes (`-s`, `-ing`, `-in'`, `-er`, `-ed`). Match on whole tokens only; no substring matching.
 - Unit tests must use innocuous placeholder words in a test-only list. Do not put profanity in test files.
 - Cross-check from lyrics: any lyric token on the list that has no matching ASR flag becomes a flag with `source="lyrics"`, `approx=True`, and a window estimated from word-level lyric times if available, otherwise interpolated between neighbouring aligned words or proportionally inside its lyric line. Flags found by both get `source="both"` and keep the aligned (lyric-clock) timing. Default `censor=True` for all flags; approximate ones are marked "verify" in the UI.

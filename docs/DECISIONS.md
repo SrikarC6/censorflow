@@ -655,3 +655,23 @@ Commits up to and including this point: `32cb486` phase 0, `3f5688f` phase 1, `3
 `859cc5e` phase 3, then the phase 4a iterations (`fdaca21`, `0003226`, `87cb7b7`, `9b45354`,
 `f1a7cbc`, `b1f4ea1`), `e6aab12` phase 4b, `41f99b8` phase 4c, `874d0ad` the dead-button fix, and
 `3937534` the download fixes.
+
+- A cleaned export keeps the source file's tags and cover art. ffmpeg remuxes the
+  finished audio with `-map_metadata 1` from the job's `original.*`, and maps only an
+  attached picture (`-map 1:v?` then `-map -1:V?`). WAV cannot store a picture; the
+  text tags still land in the RIFF INFO chunk. A failed copy leaves the audio in place.
+  Source: ffmpeg 9.0.2 / Lavf63 experiment on 2026-10-04, copying an m4a (title, artist,
+  album, album artist, genre, date, track, disc, composer, comment, lyrics, PNG cover)
+  onto flac, mp3, and wav.
+
+- The shipped word list is severe swears and insults only. better-profanity's
+  916-word set was flagging ordinary words (`fat`, `pot`, `meth`, `weed`, plus
+  damn/hell/clinical/drug terms). `data/profanity.txt` is now a hand list of the
+  fuck/shit/bitch/n-word/pussy/ass/cum/cunt/whore family, close compounds and
+  spellings, and insults of that severity. Matching peels every fitting suffix
+  (so an -er plural still keeps the -er stem), restores a silent e on -ing/-ed,
+  peels -in' only when the stem is 4+ letters, and strips apostrophes. Sibilant
+  -es applies only to the normalised token, so `assess` does not become a hit.
+  Bare cock/tit/prick/spic are omitted (`cocked`, `titter`, `pricked`, `spiced`).
+  `shiite`, `cummer`, and `dicker` are allowlisted.
+  Source: user request 2026-10-04.

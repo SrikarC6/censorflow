@@ -113,6 +113,51 @@ def test_inflections_are_peeled(lists):
     assert lists("snorkings")
 
 
+def test_apostrophes_are_stripped():
+    assert detect.normalise("snorkin'") == "snorkin"
+
+
+def test_in_apostrophe_inflection_is_peeled(lists):
+    assert lists("snorkin")
+    assert lists("snorkin'")
+
+
+def test_plural_of_an_er_word_keeps_that_word():
+    assert "snorker" in detect.variants("snorkers")
+    assert "snork" in detect.variants("snorkers")
+
+
+def test_ies_and_sibilant_es_keep_the_stem():
+    assert "blory" in detect.variants("blories")
+    assert "snorch" in detect.variants("snorches")
+    assert "flummox" in detect.variants("flummoxes")
+
+
+def test_silent_e_is_restored_for_ing_and_ed():
+    assert "snore" in detect.variants("snoring")
+    assert "snore" in detect.variants("snored")
+
+
+def test_coming_stays_come():
+    assert detect.variants("coming") == {"coming", "com", "come"}
+
+
+def test_a_short_in_ending_is_not_peeled():
+    assert detect.variants("cumin") == {"cumin"}
+
+
+def test_a_doubled_letter_does_not_invent_a_shorter_stem():
+    # "assess" can be spelled with one less s, which is a different word. That
+    # alternate must not be peeled down to the three-letter stem.
+    for word in ("assess", "assessed", "assessing", "assessment"):
+        assert "ass" not in detect.variants(word)
+
+
+def test_a_mask_that_leaves_one_letter_still_matches(lists):
+    assert lists("b****")
+    assert not lists("b***")
+
+
 def test_peeling_never_goes_below_a_word(lists):
     # "flummery" minus "er" is "flumm"; it must not match anything on the list.
     assert not lists("flummer")
@@ -139,17 +184,124 @@ def test_allowlist_wins(lists, tmp_path):
     assert detect.is_profane("blorp", profane, allowed)
 
 
+def test_allowlist_of_a_longer_word_keeps_the_stem(lists, tmp_path):
+    allow = tmp_path / "allow3.txt"
+    allow.write_text("snorking\n", encoding="utf-8")
+    profane, allowed = detect.load_wordlist(lists.extra, allow)
+    assert not detect.is_profane("snorking", profane, allowed)
+    assert detect.is_profane("snork", profane, allowed)
+
+
+# Ordinary words the shipped list used to flag, plus near-collisions of stems it
+# still keeps. None of these are profanity; they must stay uncensored.
+_ORDINARY = (
+    "fat",
+    "pot",
+    "meth",
+    "weed",
+    "hell",
+    "damn",
+    "crap",
+    "gay",
+    "sex",
+    "suck",
+    "kill",
+    "porn",
+    "piss",
+    "class",
+    "classes",
+    "classic",
+    "bass",
+    "pass",
+    "mass",
+    "glass",
+    "grass",
+    "compass",
+    "cassette",
+    "assume",
+    "assassin",
+    "assault",
+    "assembly",
+    "assistant",
+    "harass",
+    "embarrass",
+    "embarrassing",
+    "molasses",
+    "passenger",
+    "coming",
+    "cumin",
+    "document",
+    "cucumber",
+    "circumstance",
+    "cocktail",
+    "cockatoo",
+    "cockpit",
+    "cockroach",
+    "cocky",
+    "peacock",
+    "dickens",
+    "predict",
+    "title",
+    "titan",
+    "pussycat",
+    "analysis",
+    "shiitake",
+    "scunthorpe",
+    "nigeria",
+    "niger",
+    "night",
+    "niggle",
+    "niggard",
+    "niggardly",
+    "snigger",
+    "japan",
+    "spice",
+    "cracker",
+    "honky",
+    "cousin",
+    "virgin",
+    "cabin",
+    "muffin",
+    "pumpkin",
+    "shoe",
+    "phoenix",
+    "passion",
+    "massive",
+    "assess",
+    "assessed",
+    "assessing",
+    "assessment",
+    "cocked",
+    "titter",
+    "pricked",
+    "spiced",
+    "spice",
+    "shiite",
+    "cummer",
+    "cummerbund",
+    "dicker",
+    "retardant",
+    "pakistan",
+)
+
+
 def test_missing_extra_and_allow_files_fall_back_to_the_shipped_list(tmp_path):
     profane, allowed = detect.load_wordlist(tmp_path / "nope.txt", tmp_path / "nope2.txt")
     assert allowed == frozenset()
-    assert len(profane) > 100
+    assert profane, "data/profanity.txt looks empty"
 
 
 def test_shipped_word_list_loads():
     profane, allowed = detect.load_wordlist()
-    assert len(profane) > 100, "data/profanity.txt looks empty"
+    assert profane, "data/profanity.txt looks empty"
     assert isinstance(allowed, frozenset)
     assert not detect.is_profane("snork", profane, allowed), "placeholder must not be listed"
+
+
+def test_shipped_list_leaves_ordinary_words_alone():
+    profane, allowed = detect.load_wordlist()
+    flagged = [word for word in _ORDINARY if detect.is_profane(word, profane, allowed)]
+    assert flagged == []
 
 
 def test_detect_builds_flags_with_asr_timing(lists):

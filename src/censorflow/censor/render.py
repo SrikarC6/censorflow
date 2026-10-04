@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .. import audio_io, config
+from .. import audio_io, config, metadata
 from . import windows as win
 
 logger = logging.getLogger(__name__)
@@ -82,8 +82,9 @@ def render_to_file(
     *,
     export_format: str = config.DEFAULT_EXPORT_FORMAT,
     bitrate: str = config.MP3_BITRATE,
+    tags_from: Path | None = None,
 ) -> RenderStats:
-    """Produce the censored file at `output_path`.
+    """Produce the censored file at `output_path` and keep `tags_from`'s tags on it.
 
     `spans` are (start, end) seconds in ascending order. Returns stats for the UI.
     """
@@ -107,6 +108,8 @@ def render_to_file(
     audio_io.write(staged, final, rate, config.FLAC_SUBTYPE)
     audio_io.encode(staged, output_path, export_format, bitrate=bitrate)
     staged.unlink(missing_ok=True)
+    if tags_from is not None:
+        metadata.copy_metadata(tags_from, output_path)
 
     muted = float(np.count_nonzero(mask) / rate)
     logger.info(
