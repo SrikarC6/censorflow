@@ -3,52 +3,66 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CensorFlow — 5x7 font</title>
+    <title>CensorFlow — dot font</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- The background board: real geometry, real CSS colours, so what you judge
-         here is what the app will draw. -->
+    <!-- The one and only dot field. Everything drawn below is lit dots on top of
+         this board, which is why the page scrolls: content is HTML over a fixed
+         canvas rather than a canvas that scrolls with it. -->
     <canvas id="board" aria-hidden="true"></canvas>
 
     <main class="fonttest">
-      <h1>CensorFlow 5x7 flip-disc font</h1>
-      <p class="note">
-        Every glyph in <code>web/font5x7.js</code>, at scale 1 and scale 2.
-        Gaps are 1 dot between letters and 2 between words, counted in font
-        pixels so they scale with the glyph. The set is uppercase-only:
+      <h1>Dot-matrix display font</h1>
+      <p class="note" id="intro">
+        Every glyph in <code>web/font5x7.js</code>. Two sets: <b>serif</b> (default,
+        7x9) and <b>sans</b> (5x7). Serif is the default because a 7x9 cell can
+        afford a stem and a flare, which is what actually reads as a serif at this
+        size. Gaps are 1 dot between letters and 2 between words. Uppercase-only:
         <code>glyphFor()</code> uppercases its input, so lowercase renders as
-        uppercase. Characters with no glyph fall back to <code>?</code> and are
-        flagged in red below.
+        uppercase.
       </p>
 
-      <h1>Board controls — hover and press a button</h1>
-      <p class="note">
-        Drawn on the real board, at grid coordinates, with hit-testing in grid
-        space. Hover and press swap the two colours. The reserved strip is at
-        the very top of the board, so scroll to the top to reach it.
+      <h1>Board controls — hover, press, and use the toggles</h1>
+      <p class="note" id="controls-note">
+        Drawn on the real board at grid coordinates with hit-testing in grid space.
+        ANIMATE turns on the occasional background flip; WIPE runs the full
+        board-wide dance; SOUND is off until you press it, because browsers only
+        allow audio after a click. Everything here respects
+        <code>prefers-reduced-motion</code>.
       </p>
-      <div class="note" id="demo-readout">no presses yet</div>
-      <div class="row" id="scale1-letters"></div>
+      <p class="note" id="demo-readout">no presses yet</p>
 
-      <h1>Letters and digits — scale 2</h1>
-      <div class="row" id="scale2-letters"></div>
+      <h1>Letters and digits</h1>
+      <div class="tiles" id="letters-1"></div>
+      <div class="caps" id="letters-1-caps"></div>
+      <div class="tiles" id="letters-2"></div>
+      <div class="caps" id="letters-2-caps"></div>
 
-      <h1>Punctuation and symbols — scale 1 / scale 2</h1>
-      <div class="row" id="scale1-symbols"></div>
-      <div class="row" id="scale2-symbols" style="margin-top: 14px"></div>
+      <h1>Punctuation and symbols</h1>
+      <div class="tiles" id="symbols-1"></div>
+      <div class="caps" id="symbols-1-caps"></div>
+      <div class="tiles" id="symbols-2"></div>
+      <div class="caps" id="symbols-2-caps"></div>
 
-      <h1>All glyphs, in declaration order — scale 2</h1>
-      <div class="row" id="all"></div>
+      <h1>Every glyph in declaration order — scale 2</h1>
+      <div class="tiles" id="all"></div>
+      <div class="caps" id="all-caps"></div>
 
       <h1>Samples at title size — scale 4 / 3 / 2 / 1</h1>
-      <div class="samples" id="samples"></div>
+      <div class="plates" id="samples-big"></div>
 
-      <h1>Samples at body size — scale 2 / 1</h1>
-      <div class="samples" id="samples-small"></div>
+      <h1>Small text on floating plates — scale 2 / 1</h1>
+      <p class="note">
+        Each of these sits on an opaque plate sized to the text with a dot of
+        margin, so the small glyphs have quiet ground and the rectangle reads as
+        floating over the field. The outline does not affect layout, which is why
+        the dots inside still land on the grid.
+      </p>
+      <div class="plates" id="samples-small"></div>
 
-      <h1>Long line at scale 1, as the review screen will use it</h1>
-      <div class="samples" id="long"></div>
+      <h1>Long lines at scale 1, as the review screen will use them</h1>
+      <div class="plates" id="long"></div>
     </main>
 
     <script type="module">
@@ -58,76 +72,202 @@
         hasGlyph,
         measureFlipText,
         layoutFlipCells,
-        GLYPH_COLS,
-        GLYPH_ROWS,
+        setFont,
+        fontName,
+
+        glyphSize,
+        textCols,
+        FONTS,
       } from './font5x7.js';
+      import { fullWipe, startIdleFlips, prefersReducedMotion } from './flip-motion.js';
+      import { isSoundEnabled, setSoundEnabled, subscribeSound, playRowFlip } from './flip-sound.js';
 
       const pitch = pitchFromLocation();
       const board = createBoard(document.getElementById('board'), { pitch });
 
-      // Reserved strip at the top of the board for the control demo. Drawn on the
-      // board rather than on a tile so it exercises the real hit-testing path.
-      // Buttons are created once and re-placed on every redraw: creating them
-      // inside the painter would leak one into the hit-test list per repaint.
-      // Row map for the reserved strip. A scale-1 button is 7 + 4 = 11 rows tall, and
-// a scale-1 progress label is 7 rows with its bar one row further down, so the
-// rows need more air between them than they look like they need.
-const ROW = { title: 0, buttons: 9, progress: 22, reserved: 32 };
+      // One dot of padding everywhere. Because every box on this page is a whole
+      // number of dots tall and wide, each tile's canvas origin lands on a board
+      // dot and the lit dots read as part of the one field rather than as a
+      // second layer laid over it.
+      document.documentElement.style.setProperty('--pad', `${pitch}px`);
 
-const readout = document.getElementById('demo-readout');
+      /* --- the control strip, painted on the board ---------------------------- */
+
+      // A scale-1 serif button is 9 glyph rows + 4 = 13 rows tall; a progress
+      // label is 9 rows with its bar one row below. The rows need real air.
+      const ROW = { title: 0, controls: 13, controls2: 29, progress: 45, reserved: 57 };
+
+      const readout = document.getElementById('demo-readout');
       let barPct = 0.62;
+      let animate = false;
+      let stopIdle = null;
+      let wipe = null;
 
-      const pressMe = board.button({ col: 2, row: ROW.buttons, label: 'PRESS', onClick: (btn) => {
-        readout.textContent = `pressed ${btn.label}`;
-      } });
-      const bump = board.button({ col: 2, row: ROW.buttons, label: 'BAR', onClick: () => {
-        barPct = barPct >= 0.999 ? 0 : Math.min(1, barPct + 0.19);
-        readout.textContent = `progress ${Math.round(barPct * 100)}%`;
-        board.redraw();
-      } });
-      const dead = board.button({ col: 2, row: ROW.buttons, label: 'OFF', onClick: () => {
-        readout.textContent = 'this button is disabled, so this cannot happen';
-      } });
+      const pressMe = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'PRESS',
+        onClick: (btn) => {
+          readout.textContent = `pressed ${btn.label}`;
+          playRowFlip(4, false);
+        },
+      });
+
+      const bump = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'BAR',
+        onClick: () => {
+          barPct = barPct >= 0.999 ? 0 : Math.min(1, barPct + 0.19);
+          readout.textContent = `progress ${Math.round(barPct * 100)}%`;
+          board.redraw();
+        },
+      });
+
+      const dead = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'OFF',
+        onClick: () => {
+          readout.textContent = 'this button is disabled, so this cannot happen';
+        },
+      });
       dead.setEnabled(false);
 
-      // Laid out with a running cursor rather than hardcoded columns: a button is
-      // as wide as its label, so fixed columns overlap as soon as a label changes.
-      function placeRow(handles, col) {
+      const animBtn = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'ANIMATE',
+        onClick: (btn) => {
+          animate = !animate;
+          btn.setEnabled(animate);
+          if (animate) {
+            stopIdle = startIdleFlips(board);
+            readout.textContent = 'animation on: a dot flips over now and then';
+          } else {
+            stopIdle?.();
+            stopIdle = null;
+            board.redraw();
+            readout.textContent = 'animation off';
+          }
+        },
+      });
+      animBtn.setEnabled(false);
+
+      const soundBtn = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'SOUND',
+        onClick: () => {
+          const next = !isSoundEnabled();
+          setSoundEnabled(next);
+          readout.textContent = next ? 'sound on' : 'sound off';
+          board.redraw();
+        },
+      });
+
+      const wipeBtn = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'WIPE',
+        onClick: () => {
+          if (prefersReducedMotion()) {
+            readout.textContent = 'reduced motion is on, so the wipe is skipped';
+            return;
+          }
+          wipe?.();
+          wipe = fullWipe(board);
+          readout.textContent = 'wipe';
+        },
+      });
+
+      const fontBtn = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'FONT: SERIF',
+        onClick: () => {
+          const next = fontName() === 'serif' ? 'sans' : 'serif';
+          setFont(next);
+          fontBtn.setLabel(`FONT: ${next.toUpperCase()}`);
+          renderAll();
+          board.redraw();
+          readout.textContent = `font set: ${next} ${glyphSize().cols}x${glyphSize().rows}`;
+        },
+      });
+
+      // A running cursor, not fixed columns: a button is exactly as wide as its
+      // label, so fixed columns overlap as soon as a label changes.
+      function placeRow(handles, col, row) {
         let cursor = col;
         for (const handle of handles) {
-          handle.place(cursor, ROW.buttons);
+          handle.place(cursor, row);
           cursor += handle.width + 2;
         }
       }
 
       board.onDraw((b) => {
         b.stampText('BOARD CONTROLS', 2, ROW.title, { scale: 1 });
-        placeRow([pressMe, bump, dead], 2);
-        b.progress({ col: 2, row: ROW.progress, width: 90, label: `PROGRESS ${Math.round(barPct * 100)}%`, pct: barPct });
+        placeRow([animBtn, soundBtn, wipeBtn, fontBtn], 2, ROW.controls);
+        placeRow([pressMe, bump, dead], 2, ROW.controls2);
+        b.progress({
+          col: 2,
+          row: ROW.progress,
+          width: 110,
+          label: `PROGRESS ${Math.round(barPct * 100)}%`,
+          pct: barPct,
+        });
       });
-      board.redraw();
-      document.documentElement.style.setProperty('--demo-reserve', `${ROW.reserved * pitch}px`);
 
-      /** One canvas showing `text` at `scale`, padded by one dot on every side. */
-      function tile(text, scale) {
-        const figure = document.createElement('figure');
+      // Sound state survives a reload; the button has to show it on arrival.
+      subscribeSound(() => {
+        soundBtn.setLabel(isSoundEnabled() ? 'SOUND: ON' : 'SOUND');
+        board.redraw();
+      });
+      soundBtn.setLabel(isSoundEnabled() ? 'SOUND: ON' : 'SOUND');
+
+      document.documentElement.style.setProperty('--demo-reserve', `${ROW.reserved * pitch}px`);
+      board.redraw();
+
+      /* --- the glyph tiles --------------------------------------------------- */
+
+      /** One canvas of `text` at `scale`, lit dots only, transparent elsewhere. */
+      function tileCanvas(text, scale, pad = 1) {
         const canvas = document.createElement('canvas');
         const { cols, rows } = measureFlipText(text, scale);
-        const pad = 1;
         const { cells } = layoutFlipCells(text, scale);
         renderField(canvas, {
           pitch,
           cols: cols + pad * 2,
           rows: rows + pad * 2,
           lit: cells.map((cell) => [cell.x + pad, cell.y + pad]),
+          paintField: false,
         });
-        figure.append(canvas);
-        const caption = document.createElement('figcaption');
-        const label = text === ' ' ? '(space)' : text;
-        caption.textContent = label;
-        if (text !== ' ' && !hasGlyph(text)) caption.className = 'missing';
-        figure.append(caption);
-        return figure;
+        return canvas;
+      }
+
+      /**
+       * A row of tiles with its captions in a second, identically-sized row.
+       * Two containers rather than a caption under each tile: a caption has an
+       * arbitrary height, and anything arbitrary would knock every tile below it
+       * off the grid.
+       */
+      function tileRow(tileId, capId, items) {
+        const tiles = document.getElementById(tileId);
+        const caps = document.getElementById(capId);
+        items.forEach(({ text, scale, caption, missing }) => {
+          const canvas = tileCanvas(text, scale);
+          const width = `${canvas.style.width}`;
+          const figure = document.createElement('figure');
+          figure.style.width = width;
+          figure.append(canvas);
+          tiles.append(figure);
+
+          const label = document.createElement('div');
+          label.style.width = width;
+          label.textContent = caption;
+          if (missing) label.className = 'missing';
+          caps.append(label);
+        });
       }
 
       const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
@@ -137,15 +277,56 @@ const readout = document.getElementById('demo-readout');
         '·', '–', '—', '|', '\\', '[', ']', '{', '}', "'", '"', '*', '×', ' ',
       ];
 
-      for (const [id, chars, scale] of [
-        ['scale1-letters', LETTERS, 1],
-        ['scale2-letters', LETTERS, 2],
-        ['scale1-symbols', SYMBOLS, 1],
-        ['scale2-symbols', SYMBOLS, 2],
-        ['all', glyphKeys(), 2],
-      ]) {
-        const host = document.getElementById(id);
-        for (const char of chars) host.append(tile(char, scale));
+      function asItems(chars, scale) {
+        return chars.map((char) => ({
+          text: char,
+          scale,
+          caption: char === ' ' ? '(space)' : char,
+          missing: char !== ' ' && !hasGlyph(char),
+        }));
+      }
+
+      /**
+       * Columns one plate may use before it runs off the window. A plate costs its
+       * text plus `TILE_PAD` dots of air on each side (`tileCanvas`), plus a dot of
+       * figure margin on the left, plus a `GUTTER`-dot gutter on the right so no
+       * specimen ever sits flush against the edge of the window.
+       */
+      const TILE_PAD = 1;
+      const FIGURE_MARGIN = 1;
+      const GUTTER = 2;
+
+      function plateCols() {
+        const host = document.querySelector('.plates');
+        const style = getComputedStyle(host);
+        const inner = host.clientWidth
+          - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const chrome = TILE_PAD * 2 + FIGURE_MARGIN + GUTTER;
+        return Math.floor((inner - chrome * pitch) / pitch);
+      }
+
+      function plates(hostId, lines, scales, { chip = false } = {}) {
+        const host = document.getElementById(hostId);
+        const maxCols = plateCols();
+        scales.forEach((want) => {
+          lines.forEach((line) => {
+            /* Shrink until it fits. Never grow past the scale this pass asked for:
+               the section is a fixed-size specimen sheet, not a responsive layout. */
+            let scale = want;
+            while (scale > 1 && textCols(line, scale) > maxCols) scale -= 1;
+            const canvas = tileCanvas(line, scale);
+            const holder = document.createElement(chip ? 'span' : 'figure');
+            if (chip) holder.className = 'chip';
+            holder.append(canvas);
+            if (!chip) {
+              const caption = document.createElement('figcaption');
+              const fitted = scale === want ? '' : ` (fitted down from ${want})`;
+              caption.textContent = `${line}  ·  scale ${scale}${fitted}`;
+              holder.append(caption);
+            }
+            host.append(holder);
+          });
+        });
       }
 
       const SAMPLES = [
@@ -161,39 +342,44 @@ const readout = document.getElementById('demo-readout');
         'ORIGINAL',
         'CLEAN',
         'A/B PLAYBACK',
-        'ERROR: FFMPEG NOT FOUND',
         'WORDS 1/120',
       ];
 
-      const sampleHost = document.getElementById('samples');
-      for (const scale of [4, 3, 2, 1]) {
-        for (const line of SAMPLES) {
-          const figure = tile(line, scale);
-          const caption = figure.querySelector('figcaption');
-          caption.textContent = `${line}  ·  scale ${scale}`;
-          sampleHost.append(figure);
-        }
+      function renderAll() {
+        ['letters-1', 'letters-1-caps', 'letters-2', 'letters-2-caps', 'symbols-1',
+          'symbols-1-caps', 'symbols-2', 'symbols-2-caps', 'all', 'all-caps',
+          'samples-big', 'samples-small', 'long'].forEach((id) => {
+          document.getElementById(id).replaceChildren();
+        });
+
+        tileRow('letters-1', 'letters-1-caps', asItems(LETTERS, 1));
+        tileRow('letters-2', 'letters-2-caps', asItems(LETTERS, 2));
+        tileRow('symbols-1', 'symbols-1-caps', asItems(SYMBOLS, 1));
+        tileRow('symbols-2', 'symbols-2-caps', asItems(SYMBOLS, 2));
+        tileRow('all', 'all-caps', asItems(glyphKeys(), 2));
+
+        plates('samples-big', SAMPLES, [4, 3, 2, 1]);
+        plates('samples-small', SAMPLES, [2, 1], { chip: true });
+        plates('long', ['WORD 42  1.44  1.79  BOTH  VERIFY',
+          'FLAGS 5 OF 527 WORDS  2.03 SECONDS MUTED'], [1], { chip: true });
+
+        const { cols, rows } = glyphSize();
+        document.title = `CensorFlow — ${fontName()} ${cols}x${rows}, pitch ${pitch}`;
       }
 
-      const smallHost = document.getElementById('samples-small');
-      for (const scale of [2, 1]) {
-        for (const line of SAMPLES) {
-          const figure = tile(line, scale);
-          const caption = figure.querySelector('figcaption');
-          caption.textContent = `scale ${scale}`;
-          smallHost.append(figure);
-        }
-      }
+      renderAll();
 
-      const longHost = document.getElementById('long');
-      for (const line of [
-        'WORD 42  1.44  1.79  BOTH  VERIFY',
-        'FLAGS 5 OF 527 WORDS  2.03 SECONDS MUTED',
-      ]) {
-        longHost.append(tile(line, 1));
-      }
+      document.getElementById('intro').insertAdjacentHTML(
+        'beforeend',
+        ` Currently showing <b>${fontName()}</b>, ${glyphSize().cols}x${glyphSize().rows}, pitch ${pitch} px. Sets available: ${Object.keys(FONTS).join(', ')}.`,
+      );
 
-      document.title = `CensorFlow — 5x7 font (${GLYPH_COLS}x${GLYPH_ROWS}, pitch ${pitch})`;
+      // Animate only starts on request: the board is a status readout, and
+      // nothing should move until the person looking at it says so.
+      window.addEventListener('beforeunload', () => {
+        stopIdle?.();
+        wipe?.();
+      });
     </script>
   </body>
 </html>

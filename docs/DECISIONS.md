@@ -300,3 +300,45 @@ this behaviour and asserts the clamp actually ran, so the test cannot pass vacuo
 - `web/style.css` is a new file: `AGENTS.md`'s file list has no stylesheet, and one is
   unavoidable. It also carries the amber-on-black monospace styling for the HTML overlay
   that the review screen will need.
+
+## Web UI: revisions after the first look
+
+Seven changes were requested on `font-test.html` only, so the look could be judged before
+any screen was built. Decisions that outlive the test page:
+
+- **Two font sets in one file.** `web/font5x7.js` now carries `SERIF_GLYPHS` (7 cols x 9 rows,
+  the default) and `SANS_GLYPHS` (5 cols x 7 rows, the original set, kept for small print).
+  `setFont(name)` / `getFont(font)` switch between them and every API takes an optional
+  trailing `font` argument. Reason: a serif does not fit 5x7, and `AGENTS.md` names the file
+  `font5x7.js` so the name stayed. `tests/test_web_font.py` parses **both** tables and checks
+  each against its own metrics (serif 9 rows of 7 bits, sans 7 rows of 5 bits).
+- **Serif house style**, documented at the top of the table: a stem sits at column 1 or 5 and
+  flares to three dots at row 0 and row 8; crossbars of A, E, F, H, P and T sit on row 4; round
+  letters open their corners into four-dot shoulders so they do not read as the sans scaled up.
+  `glyphBitmap`'s cache key carries the set name **and** the raw character, because the sets
+  have different widths and `x` must never share an entry with `X`.
+- **Denser, smaller dots.** `DISC_FILL` 0.72 -> 0.55 and `DEFAULT_PITCH` 6 -> 4 (`MIN_PITCH` 3).
+  Reason: at 0.72 the gaps close and a grid reads as squares rather than dots, which was the
+  first thing the eyeball check caught. Denser dots are also what pay for the taller glyph
+  cell - a 7x9 serif at pitch 4 is the same physical size as a 5x7 at pitch 6, but far more
+  detailed.
+- **Exactly one dot layer.** `renderField(..., paintField = false)` draws only lit dots and no
+  background, so a glyph tile sits on the board's single field instead of painting a second,
+  differently-phased one on top of it. This only works because every CSS box in the page is a
+  whole number of dots tall and wide (padding, heading heights, a second identically-sized
+  caption row); `.fonttest` sets `--pad` from the board pitch in JS. Anything that is not a
+  whole number of dots reintroduces the moire.
+- **Floating plates** use `outline`, not `border`, for their 1px frame. Reason: an outline takes
+  no part in layout, so the dots inside the plate still land on the global grid; a border would
+  push them all off by one dot.
+- **A protection mask** (`board.isProtected(col, row)`) is set by `stampText`, `button` and
+  `progress`, and cleared by `redraw`. The test page's idle flips use it so a random disc can
+  never flicker a word.
+- **Animation lives in `web/flip-motion.js` and sound in `web/flip-sound.js`**, ported from the
+  prototype, and deliberately *not* in `flipdisc.js`. `flipdisc.js` stays free of
+  `requestAnimationFrame` and `setInterval`, which a test asserts; a screen that wants the
+  reveal opts in by importing the module. The full wipe (diagonal wave, hold, scatter dissolve,
+  then `redraw()`) and the occasional idle flip both respect `prefers-reduced-motion`.
+- **Body copy stays monospace** while the dot matrix is serif. Reason: the dense HTML overlay
+  (transcript, flag table) has to be selectable and its timestamp columns have to line up;
+  a dot-matrix serif cannot do either.

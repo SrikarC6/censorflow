@@ -23,6 +23,12 @@
   --dim: #6b7385;
   --line: #222836;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /*
+   * Body copy stays monospace on purpose: it is the dense, selectable text
+   * (transcript, review table, timings) and a monospace face keeps columns of
+   * timestamps aligned. The dot-matrix display font is the serif set in
+   * font5x7.js; the two never mix.
+   */
 }
 
 * {
@@ -158,64 +164,135 @@ button.html:focus-visible {
   outline-offset: 2px;
 }
 
-/* --- font-test.html only ------------------------------------------------------ */
 
-/* Transparent so the real fixed board shows through around the tiles. The top
- * padding clears the control demo strip that font-test.html paints on the board;
- * font-test.html sets --demo-reserve from its own row map. */
+/* --- font-test.html only ------------------------------------------------------
+ *
+ * Every box on this page is a whole number of dots tall and wide. That is the
+ * whole trick behind "one layer of dots": the board is a fixed full-window
+ * canvas, and because nothing above it has an arbitrary height, each tile's
+ * canvas origin still lands exactly on a board dot. The lit dots of a word then
+ * read as part of the field instead of as a second field laid over the first.
+ * `--pad` is one dot, set from JS from the real pitch.
+ */
+
 .fonttest {
   position: fixed;
   inset: 0;
   overflow: auto;
   z-index: 2;
   background: transparent;
-  padding: calc(var(--demo-reserve, 190px) + 14px) 20px 60px;
+  padding: calc(var(--demo-reserve, 228px) + var(--pad, 4px)) var(--pad, 4px)
+    calc(var(--pad, 4px) * 24);
 }
 
 .fonttest h1 {
-  font-size: 12px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--dim);
+  color: var(--fg);
   font-weight: 600;
-  margin: 26px 0 10px;
+  /* Fixed dot-multiple heights: see the note above. */
+  height: calc(var(--pad, 4px) * 5);
+  line-height: calc(var(--pad, 4px) * 5);
+  margin: calc(var(--pad, 4px) * 2) 0 0;
+  overflow: hidden;
 }
 
-.fonttest .row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.fonttest figure {
-  margin: 0;
-  text-align: center;
-}
-
-.fonttest figcaption {
+.fonttest .note {
   font-size: 10px;
   color: var(--dim);
-  margin-top: 5px;
-  letter-spacing: 0.08em;
+  line-height: calc(var(--pad, 4px) * 2.5);
+  letter-spacing: 0.04em;
+  max-width: 96ch;
+  height: calc(var(--pad, 4px) * 8);
+  margin: 0;
+  overflow: hidden;
+}
+
+.fonttest code,
+.fonttest b {
+  color: var(--fg);
 }
 
 .fonttest canvas {
   display: block;
-  background: var(--bg);
+  /* Transparent: the board behind is the only dot field on the page. A tile that
+   * painted its own background would cut a hole in it. */
+  background: transparent;
 }
 
-.fonttest .samples canvas {
-  margin-bottom: 12px;
+/* A row of glyph tiles. No gap: the tiles are adjacent, and their widths are
+ * whole numbers of dots, so they stay on the grid edge to edge. */
+.fonttest .tiles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0;
+  padding: var(--pad, 4px);
 }
 
-.fonttest .note {
-  font-size: 11px;
+.fonttest .tiles figure {
+  margin: 0;
+  padding: 0;
+  line-height: 0;
+}
+
+/* Captions live in their own identically-sized row so that a caption's arbitrary
+ * text height cannot push the next row of tiles off the grid. */
+.fonttest .caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 0 var(--pad, 4px);
+  height: calc(var(--pad, 4px) * 3);
+  overflow: hidden;
+}
+
+.fonttest .caps > div {
+  font-size: 9px;
+  line-height: calc(var(--pad, 4px) * 3);
+  text-align: center;
   color: var(--dim);
-  line-height: 1.7;
-  max-width: 62ch;
-  letter-spacing: 0.04em;
+  overflow: hidden;
 }
 
-.fonttest .missing {
+.fonttest .caps .missing {
   color: #ff6b6b;
+}
+
+/* Bigger samples, laid straight onto the board with no plate. */
+.fonttest .plates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin: 0 0 calc(var(--pad, 4px) * 2);
+}
+
+.fonttest .plates figure {
+  margin: 0 0 calc(var(--pad, 4px) * 2) calc(var(--pad, 4px) * 2);
+  line-height: 0;
+}
+
+.fonttest figcaption {
+  font-size: 9px;
+  line-height: calc(var(--pad, 4px) * 2.5);
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  padding-left: var(--pad, 4px);
+}
+
+/*
+ * Small and intricate text sits on an opaque plate sized to the text with a dot
+ * of margin, so the glyphs get quiet ground and the rectangle reads as floating
+ * above the field. `outline` rather than `border` on purpose: an outline does
+ * not take part in layout, so the dots inside the plate still land on the grid.
+ */
+.fonttest .chip {
+  display: inline-block;
+  background: var(--bg);
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+  padding: var(--pad, 4px);
+  margin: 0 calc(var(--pad, 4px) * 2) calc(var(--pad, 4px) * 2) 0;
+  line-height: 0;
 }

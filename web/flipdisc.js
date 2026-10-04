@@ -14,14 +14,23 @@
  * later: a scheduler would sit between them and callers would not change.
  */
 
-import { layoutFlipCells, textCols, GLYPH_ROWS } from './font5x7.js';
+import { layoutFlipCells, textCols, getFont } from './font5x7.js';
 
-/** Dot diameter as a fraction of the pitch. */
-export const DISC_FILL = 0.72;
+/**
+ * Dot diameter as a fraction of the pitch. Small on purpose: the user asked for
+ * dots that read as "basically periods but a little larger". Above ~0.6 the
+ * diameter approaches the pitch, the unlit gaps close up, and a dense grid
+ * stops looking like a field of dots and starts looking like a sheet of squares.
+ */
+export const DISC_FILL = 0.55;
 
-/** Default and permitted grid pitch, in CSS pixels. `?pitch=` overrides within the clamp. */
-export const DEFAULT_PITCH = 6;
-export const MIN_PITCH = 4;
+/**
+ * Default and permitted grid pitch, in CSS pixels. `?pitch=` overrides within
+ * the clamp. The default is deliberately tight so that a glyph can afford more
+ * dots without also getting bigger.
+ */
+export const DEFAULT_PITCH = 4;
+export const MIN_PITCH = 3;
 export const MAX_PITCH = 12;
 
 /** Cell values. Inverted is how a hovered or pressed button reads. */
@@ -59,7 +68,21 @@ export function pitchFromLocation(search = window.location.search) {
  * state changes are one cell rather than a whole repaint - but `font-test.html`
  * does, to show the font without the board underneath it.
  */
-export function renderField(canvas, { pitch, cols, rows, lit = [], colours = readColours() }) {
+/**
+ * Paint a standalone rectangle of the field onto any canvas, lighting the given
+ * cells. The full-window board does not use this - it holds its own buffer so
+ * state changes are one cell rather than a whole repaint - but `font-test.html`
+ * does, to show the font as text laid over the one board.
+ *
+ * `paintField: false` draws only the lit dots and leaves everything else
+ * transparent. That is the only correct way to lay text over the board: a tile
+ * that painted its own unlit dots would put a second, differently-phased field
+ * behind the words, which reads as two layers of dots rather than one.
+ */
+export function renderField(
+  canvas,
+  { pitch, cols, rows, lit = [], colours = readColours(), paintField = true },
+) {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -72,21 +95,26 @@ export function renderField(canvas, { pitch, cols, rows, lit = [], colours = rea
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const radius = (pitch * DISC_FILL) / 2;
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const x = col * pitch;
-      const y = row * pitch;
-      ctx.fillStyle = colours.bg;
-      ctx.fillRect(x, y, pitch, pitch);
-      drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.off);
+  if (paintField) {
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const x = col * pitch;
+        const y = row * pitch;
+        ctx.fillStyle = colours.bg;
+        ctx.fillRect(x, y, pitch, pitch);
+        drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.off);
+      }
     }
   }
   for (const [col, row] of lit) {
     if (col < 0 || row < 0 || col >= cols || row >= rows) continue;
     const x = col * pitch;
     const y = row * pitch;
-    ctx.fillStyle = colours.on;
-    ctx.fillRect(x, y, pitch, pitch);
+    if (paintField) {
+      ctx.fillStyle = colours.on;
+      ctx.fillRect(x, y, pitch, pitch);
+    }
+    drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.on);
     drawHighlight(ctx, x + pitch / 2, y + pitch / 2, radius, colours.hi);
   }
 }
@@ -119,6 +147,13 @@ export function createBoard(canvas, options = {}) {
   let rows = 0;
   let dpr = 1;
   let cells = new Uint8Array(0);
+  /**
+   * Cells that carry meaning: text, a button, a progress bar. `redraw` clears
+   * it and the text primitives set it. The board itself never reads it - it
+   * exists so a caller that animates the field can skip these cells instead of
+   * flickering the words, which is the whole point of a status display.
+   */
+  let guard = new Uint8Array(0);
   const radius = (pitch * DISC_FILL) / 2;
 
   const painters = [];
@@ -202,10 +237,19 @@ export function createBoard(canvas, options = {}) {
    * Light `text` into the grid and return its footprint.
    * `col`/`row` is the top-left corner; `center` instead treats them as the
    * horizontal centre of the first line.
+   *
+   * Marks every cell it touches as protected, so a caller that animates the
+   * field (see the animation in `font-test.html`) can ask which cells carry
+   * meaning and leave them alone.
    */
-  function stampText(text, col, row, { scale = 1, center = false, state = ON } = {}) {
-    const { cells: lit, cols: width, rows: height } = layoutFlipCells(text, scale, { center });
+  function stampText(text, col, row, { scale = 1, center = false, state = ON, font } = {}) {
+    const { cells: lit, cols: width, rows: height } = layoutFlipCells(text, scale, { center, font });
     const x0 = center ? col - Math.floor(width / 2) : col;
+    for (let r = row; r < row + height; r += 1) {
+      for (let c = x0; c < x0 + width; c += 1) {
+        if (inside(c, r)) guard[index(c, r)] = 1;
+      }
+    }
     for (const cell of lit) put(x0 + cell.x, row + cell.y, state);
     for (let r = row; r < row + height; r += 1) {
       for (let c = x0; c < x0 + width; c += 1) paint(c, r);
@@ -218,7 +262,7 @@ export function createBoard(canvas, options = {}) {
    * Hover and press swap the two colours, which is why cell state carries a
    * third value: the interior has to read as a hole in a lit field.
    */
-  function button({ col, row, label, scale = 1, onClick }) {
+  function button({ col, row, label, scale = 1, font, onClick }) {
     const handle = {
       col,
       row,
@@ -245,8 +289,8 @@ export function createBoard(canvas, options = {}) {
     };
 
     function layout() {
-      handle.width = textCols(handle.label, handle.scale) + 4;
-      handle.height = GLYPH_ROWS * handle.scale + 4;
+      handle.width = textCols(handle.label, handle.scale, undefined, undefined, font) + 4;
+      handle.height = getFont(font).rows * handle.scale + 4;
       render();
     }
 
@@ -259,7 +303,16 @@ export function createBoard(canvas, options = {}) {
       const ink = !handle.enabled ? DIM : active ? INV : ON;
       fill(handle.col, handle.row, handle.width, handle.height, body);
       stroke(handle.col, handle.row, handle.width, handle.height, ink);
-      stampText(handle.label, handle.col + 2, handle.row + 2, { scale: handle.scale, state: ink });
+      for (let r = handle.row; r < handle.row + handle.height; r += 1) {
+        for (let c = handle.col; c < handle.col + handle.width; c += 1) {
+          if (inside(c, r)) guard[index(c, r)] = 1;
+        }
+      }
+      stampText(handle.label, handle.col + 2, handle.row + 2, {
+        scale: handle.scale,
+        state: ink,
+        font,
+      });
     }
 
     handle.setEnabled = (value) => {
@@ -289,13 +342,16 @@ export function createBoard(canvas, options = {}) {
   }
 
   /** A bar of `width` cells filled to `pct`, with an optional dot-matrix label above it. */
-  function progress({ col, row, width, label, scale = 1, pct = 0 }) {
+  function progress({ col, row, width, label, scale = 1, font, pct = 0 }) {
     if (label !== undefined) {
-      const block = stampText(label, col, row, { scale });
+      const block = stampText(label, col, row, { scale, font });
       row += block.rows + 1;
     }
     const filled = Math.round(Math.max(0, Math.min(1, pct)) * width);
-    for (let i = 0; i < width; i += 1) set(col + i, row, i < filled ? ON : OFF);
+    for (let i = 0; i < width; i += 1) {
+      set(col + i, row, i < filled ? ON : OFF);
+      if (inside(col + i, row)) guard[index(col + i, row)] = 1;
+    }
     return { x: col, y: row, cols: width, rows: 1 };
   }
 
@@ -311,12 +367,14 @@ export function createBoard(canvas, options = {}) {
     canvas.style.height = `${height}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     cells = new Uint8Array(cols * rows);
+    guard = new Uint8Array(cols * rows);
     redraw();
   }
 
   /** Re-run every painter over a blank grid. Called on resize and on demand. */
   function redraw() {
     cells.fill(OFF);
+    guard.fill(0);
     for (const painter of painters) painter(board);
     repaintAll();
   }
@@ -344,6 +402,10 @@ export function createBoard(canvas, options = {}) {
     stampText,
     button,
     progress,
+    /** True when this cell holds text, a button or a bar, and so should not be animated. */
+    isProtected(col, row) {
+      return inside(col, row) ? guard[index(col, row)] === 1 : false;
+    },
     /** Register a painter. It receives the board and is responsible for the whole layout. */
     onDraw(painter) {
       painters.push(painter);
