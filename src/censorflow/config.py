@@ -106,6 +106,18 @@ LYRICS_MIN_WORD_S = 0.08
 LYRICS_MAX_WORD_S = 2.0
 
 # --- Paths ----------------------------------------------------------------------
+
+# Extensions we are willing to keep when saving an upload or stripping a filename. This is
+# only a convenience: `audio_io.has_audio_stream` validates with ffprobe, so a file with the
+# wrong extension is still accepted and a file with no audio in it is still refused.
+AUDIO_EXTENSIONS = frozenset(
+    {
+        "aac", "aif", "aiff", "alac", "ape", "flac", "m4a", "m4b", "mp3", "mp4", "ogg",
+        "oga", "opus", "wav", "wave", "wma", "wv", "mka", "m4r",
+    }
+)
+
+
 def _project_root() -> Path:
     """The directory holding this project's pyproject.toml.
 
@@ -138,6 +150,16 @@ LOG_DIR = HOME_DIR / "logs"
 # --- Server ---------------------------------------------------------------------
 SERVER_HOST = "127.0.0.1"  # local only, never 0.0.0.0
 SERVER_PORT = 8765
+# The web app is served from disk; these are the only two things it may reach.
+WEB_DIR = PROJECT_DIR / "web"
+# How often the event stream emits a comment line so an idle connection is not closed.
+SSE_KEEPALIVE_S = 15.0
+# Uploads are streamed to disk in chunks and refused above this size, rather than being
+# read into memory or silently filling the disk.
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+MAX_UPLOAD_BYTES = 4 * 1024**3
+# How often a running job wakes up just to re-publish its snapshot, so a client that
+# missed an event still converges.
 
 # --- Preview clips --------------------------------------------------------------
 # Per-flag A/B preview length either side of the flagged word.

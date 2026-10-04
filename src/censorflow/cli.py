@@ -5,8 +5,8 @@ Two commands, both of which must keep working (`AGENTS.md`):
     censorflow serve                     start the web app on 127.0.0.1
     censorflow censor SONG --auto -o DIR  headless, every flag the UI exposes
 
-`serve` arrives with the server phase; until then `censor` is the whole interface. Flagged
-words are only ever printed redacted.
+`serve` runs the web app on 127.0.0.1 and never on a routable address. Flagged words are
+only ever printed redacted.
 """
 
 from __future__ import annotations
@@ -89,18 +89,41 @@ def _build_parser() -> argparse.ArgumentParser:
         help="where to keep intermediate files (default: a fresh directory under the CensorFlow home)",
     )
 
-    subparsers.add_parser("serve", help="start the web app (added in the server phase)")
+    serve = subparsers.add_parser("serve", help="start the web app on 127.0.0.1")
+    serve.add_argument(
+        "--host",
+        default=config.SERVER_HOST,
+        help=argparse.SUPPRESS,  # local only; overridable for tests, not for users
+    )
+    serve.add_argument(
+        "--port", type=int, default=config.SERVER_PORT, help="default: %(default)s"
+    )
+    serve.add_argument("--reload", action="store_true", help="restart on code changes")
     return parser
 
 
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "censor":
         return _cmd_censor(args)
-    logger.error(
-        "`censorflow serve` arrives with the web app. For now use "
-        "`censorflow censor SONG --auto -o DIR`."
+    if args.command == "serve":
+        return _cmd_serve(args)
+    raise AssertionError(f"unhandled command {args.command!r}")
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from . import server
+
+    logger.info("CensorFlow is starting on http://%s:%d", args.host, args.port)
+    uvicorn.run(
+        server.app,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_config=None,
     )
-    return 2
+    return 0
 
 
 def _cmd_censor(args: argparse.Namespace) -> int:
@@ -145,6 +168,12 @@ def _cmd_censor(args: argparse.Namespace) -> int:
         len(result.windows),
         time.perf_counter() - started,
     )
+    if result.stats and result.stats.clipped_samples:
+        logger.warning(
+            "this track peaks above full scale, so %d sample(s) were clipped on export; "
+            "FLAC/WAV/MP3 cannot store anything louder than 1.0",
+            result.stats.clipped_samples,
+        )
     return 0
 
 

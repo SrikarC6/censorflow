@@ -37,10 +37,10 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
 ## Phase 3 - server and jobs
 
-- [ ] `jobs.py` state machine + on-disk layout
-- [ ] `server.py` endpoints, SSE, review read/write, region-only clip
-- [ ] Stem routes return 501
-- [ ] Scripted `httpx` client test; bind 127.0.0.1 only
+- [x] `jobs.py` state machine + on-disk layout
+- [x] `server.py` endpoints, SSE, review read/write, region-only clip
+- [x] Stem routes return 501
+- [x] Scripted `httpx` client test; bind 127.0.0.1 only
 
 ## Phase 4 - web UI
 

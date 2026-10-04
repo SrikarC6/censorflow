@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from censorflow import config
+from censorflow.audio_io import duration_seconds, read, write
+from censorflow.models import SOURCE_ASR, ProgressFn, Word
 
 RATE = config.SAMPLE_RATE
 
@@ -68,3 +73,106 @@ def rms(data: np.ndarray, start: float, end: float, rate: int = RATE) -> float:
     s = int((start + guard) * rate)
     e = int((end - guard) * rate)
     return float(np.sqrt(np.mean(np.square(data[s:e]))))
+
+# --- a backend that needs no model weights ------------------------------------------
+#
+# `JobStore` takes a backend factory, so the whole state machine and the HTTP API can be
+# driven without loading Demucs or Parakeet. The fake is deliberately honest: it derives
+# the instrumental as `mix - vocals`, exactly like the real one.
+
+_SONG_WORDS = ("we", "run", "the", "night", "zzapp", "again", "and", "stay")
+
+
+class FakeBackend:
+    """Stands in for `LocalBackend`: writes stems and returns a fixed transcript."""
+
+    def __init__(self, job_dir: Path, words: tuple[str, ...] = _SONG_WORDS) -> None:
+        self.job_dir = Path(job_dir)
+        self.words = words
+
+    def separate(
+        self,
+        audio_path: Path,
+        stems: tuple[str, ...],
+        quality: str,
+        on_progress: ProgressFn | None = None,
+    ) -> dict[str, Path]:
+        mix, rate = read(audio_path)
+        # A vocal stem that is a quarter of the mix: enough for the mask and the RMS tail
+        # extension to have something real to work with.
+        vocals = (mix * 0.25).astype(np.float32)
+        written = {"vocals": self.job_dir / "vocals.wav"}
+        write(written["vocals"], vocals, rate, config.FLAC_SUBTYPE)
+        if "instrumental" in stems:
+            instrumental = mix - vocals
+            written["instrumental"] = self.job_dir / "instrumental.wav"
+            write(written["instrumental"], instrumental, rate, config.FLAC_SUBTYPE)
+        for report in (5, 90, 100):
+            if on_progress is not None:
+                on_progress(float(report), "fake separation")
+        return written
+
+    def transcribe(
+        self, vocal_path: Path, on_progress: ProgressFn | None = None
+    ) -> list[Word]:
+        duration = duration_seconds(vocal_path)
+        step = duration / (len(self.words) + 1)
+        found = [
+            Word(
+                text=text,
+                start=round((index + 1) * step, 3),
+                end=round((index + 1) * step + step * 0.6, 3),
+                confidence=0.9,
+                source=SOURCE_ASR,
+            )
+            for index, text in enumerate(self.words)
+        ]
+        if on_progress is not None:
+            on_progress(100.0, "fake transcription")
+        return found
+
+
+@pytest.fixture
+def song(tmp_path: Path) -> Path:
+    """A short synthetic song on disk, tagged so lyrics lookup has something to read."""
+    instrumentals = stereo(tone(110.0, 4.0, amp=0.25))
+    vocals = np.zeros_like(instrumentals)
+    vocals[:, 0] += burst(440.0, 0.5, 0.4, amp=0.45, total=4.0)
+    vocals[:, 0] += burst(660.0, 2.0, 0.5, amp=0.45, total=4.0)
+    wav = tmp_path / "source.wav"
+    write(wav, instrumentals + vocals, RATE, "PCM_16")
+    path = tmp_path / "fake song.m4a"
+    _transcode(wav, path)
+    return path
+
+
+def _transcode(src: Path, dst: Path) -> None:
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-c:a", "aac", str(dst)],
+        capture_output=True,
+        check=True,
+    )
+
+
+@pytest.fixture
+def fake_backend():
+    return lambda job_dir: FakeBackend(job_dir)
+
+
+# --- a test-only word list ----------------------------------------------------------
+#
+# AGENTS.md rule 7: unit tests must use innocuous placeholder words, never real profanity.
+# So the shipped list is stubbed out for anything that goes through the detector by
+# default, and these invented words take its place.
+TEST_PROFANE = frozenset({"zzapp", "snork", "blorp"})
+TEST_ALLOWED = frozenset({"wibble"})
+
+
+@pytest.fixture
+def test_wordlist(monkeypatch: pytest.MonkeyPatch) -> frozenset[str]:
+    """Make `detect` see only the placeholder words above."""
+    monkeypatch.setattr(
+        "censorflow.profanity.detect._cached_wordlist",
+        lambda extra=None, allow=None: (TEST_PROFANE, TEST_ALLOWED),
+    )
+    return TEST_PROFANE

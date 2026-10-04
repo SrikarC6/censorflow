@@ -25,7 +25,7 @@ from .censor import render as render_mod
 from .censor import windows as win
 from .compute.base import ComputeBackend
 from .metadata import title_from_filename
-from .models import Flag, LyricLine, ProgressFn, TrackInfo, Word
+from .models import Flag, LyricLine, ProgressFn, StageFn, TrackInfo, Word
 from .profanity import detect
 
 logger = logging.getLogger(__name__)
@@ -70,8 +70,13 @@ def run_censor(
     quality: str = config.DEFAULT_QUALITY,
     auto: bool = False,
     on_progress: ProgressFn | None = None,
+    on_stage: StageFn | None = None,
 ) -> PipelineResult:
-    """Decode, separate, transcribe and detect; render when `auto` is set."""
+    """Decode, separate, transcribe and detect; render when `auto` is set.
+
+    `on_stage` is called once per stage with a name from the job-state vocabulary, so the
+    server can show which stage is running without parsing progress messages.
+    """
     source = Path(source).expanduser().resolve()
     job_dir = Path(job_dir).expanduser()
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -82,6 +87,7 @@ def run_censor(
     if not audio_io.has_audio_stream(source):
         raise audio_io.AudioError(f"{source.name} has no audio stream ffmpeg can read.")
 
+    _stage(on_stage, "fetching_lyrics")
     lookup = lyrics.lookup(source)
     _write_json(job_dir / "lyrics.json", lookup.to_payload())
 
@@ -90,11 +96,13 @@ def run_censor(
     if not original.exists():
         shutil.copy2(source, original)
 
+    _stage(on_stage, "decoding")
     _report(on_progress, 3.0, "decoding audio")
     mix_path = audio_io.decode(
         source, job_dir / "mix.wav", duration=clip_seconds
     )
 
+    _stage(on_stage, "separating")
     _report(on_progress, 8.0, "separating the vocals")
     stems = backend.separate(
         mix_path, config.STEMS_CENSOR, quality, _scaled(on_progress, 8, 70)
@@ -104,10 +112,12 @@ def run_censor(
         raise audio_io.AudioError("The separation stage produced no vocal stem.")
     _assert_stem_lengths(mix_path, stems)
 
+    _stage(on_stage, "transcribing")
     _report(on_progress, 72.0, "reading the vocal stem")
     words = backend.transcribe(vocals_path, _scaled(on_progress, 72, 97))
     _write_json(job_dir / "words.json", [word.to_dict() for word in words])
 
+    _stage(on_stage, "detecting")
     _report(on_progress, 98.0, "checking the transcript")
     region_end = len(audio_io.read(mix_path)[0]) / config.SAMPLE_RATE
     flags = lyrics.merge_flags(words, lookup.lines, region_end=region_end)
@@ -134,6 +144,7 @@ def run_censor(
         _report(on_progress, 100.0, "ready for review")
         return result
 
+    _stage(on_stage, "rendering")
     output_path = _output_path(source, output_dir or job_dir, export_format, lookup.track)
     stats = render_reviewed(result, output_path, export_format)
     _report(on_progress, 100.0, f"done in {stats.muted_seconds:.1f}s muted")
@@ -224,6 +235,11 @@ def _write_json(path: Path, payload: object) -> None:
 def _report(on_progress: ProgressFn | None, pct: float, msg: str) -> None:
     if on_progress is not None:
         on_progress(pct, msg)
+
+
+def _stage(on_stage: StageFn | None, name: str) -> None:
+    if on_stage is not None:
+        on_stage(name)
 
 
 def _scaled(on_progress: ProgressFn | None, lo: float, hi: float) -> ProgressFn | None:

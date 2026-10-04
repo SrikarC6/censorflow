@@ -20,6 +20,11 @@ SOURCE_BOTH = "both"
 # importing each other.
 ProgressFn = Callable[[float, str], None]
 
+# Stage callback: called once at each stage boundary with the stage's name. The names are
+# the job state vocabulary in `AGENTS.md` (decoding, separating, transcribing, ...), so a
+# caller can map them straight onto its own state machine without parsing messages.
+StageFn = Callable[[str], None]
+
 
 @dataclass(frozen=True, slots=True)
 class Word:

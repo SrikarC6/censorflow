@@ -18,7 +18,7 @@ from pathlib import Path
 
 from mutagen import File, MutagenError
 
-from . import audio_io
+from . import audio_io, config
 from .models import TrackInfo
 
 logger = logging.getLogger(__name__)
@@ -43,12 +43,6 @@ _DECORATION = re.compile(r"^[\s'\"()\[\]&+.,_-]+|[\s'\"()\[\]&+.,_-]+$")
 # Extensions worth stripping when guessing a title from a filename. `Path.stem` cannot be
 # trusted for this: it reads "3. Carti.m4a" as stem "3. Carti" -> "3", because it treats
 # ". Carti" as the suffix.
-_AUDIO_EXTENSIONS = frozenset(
-    {
-        "aac", "aif", "aiff", "alac", "ape", "flac", "m4a", "m4b", "mp3", "mp4", "ogg",
-        "oga", "opus", "wav", "wave", "wma", "wv", "mka", "m4r",
-    }
-)
 
 
 def artist_candidates(artist: str | None) -> list[str]:
@@ -102,7 +96,7 @@ def title_from_filename(path: Path) -> str | None:
 def _strip_audio_extension(name: str) -> str:
     """Drop a trailing audio extension by name, leaving dots inside the title alone."""
     head, dot, tail = name.rpartition(".")
-    if dot and tail.lower() in _AUDIO_EXTENSIONS:
+    if dot and tail.lower() in config.AUDIO_EXTENSIONS:
         return head.strip()
     return name
 

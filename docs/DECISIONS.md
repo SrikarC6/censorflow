@@ -215,3 +215,55 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
 - `primary_artist` splits on `feat.`, `ft.`, `featuring`, `with`, `vs.`, `,`, `;`, `/`, `&`
   and `x`, taking the first credit. Known and accepted limitation: it also splits a genuine
   artist name containing `&` (for example `Simon & Garfunkel`).
+
+## Jobs, review and the server (Phase 3)
+
+- `src/censorflow/review.py` and `src/censorflow/preview.py` are new modules not in `AGENTS.md`'s
+  tree. Reason: review editing and region preview are substantial enough to deserve their own files
+  and their own tests, and `server.py` would otherwise be unreadable.
+- `JobError` lives in `review.py`, not `jobs.py`. Reason: the validation that raises it is the
+  review payload's; keeping them together avoids a circular import and means the server has one
+  obvious place to catch a bad payload.
+- The `censor` switch is honoured **exactly as the user sent it**, while `profane` is recomputed
+  server-side from the edited text. Reason: the user's decision is the authority (that is the whole
+  point of the review screen); the recomputed `profane` key exists only so the UI can re-highlight
+  a word after it was retyped, and it never changes the outcome of the render.
+- Lyrics lookup is deliberately **not** in the `ComputeBackend` protocol. `AGENTS.md` defines the
+  seam as exactly `separate()` and `transcribe()`, and describes the future remote worker as
+  running "the same two stages". Adding lyrics to the seam would mean a GPU worker owes us a
+  third method we never specified. `workers/fetch_lyrics.py` exists as a manual entry point only.
+- `run_censor` takes an `on_stage(stage_name)` callback in addition to `on_progress(pct, msg)`.
+  Reason: the job state machine has ten named states and a percentage cannot be mapped onto them
+  honestly (separation reports 2/5/10/90/100). The UI shows the stage list; the percentage is
+  only for the bar.
+- `JobStore` runs **one job at a time** from a single daemon thread. Reason: the machine is a
+  fanless laptop and `AGENTS.md` says run one heavy stage at a time, never two models at once.
+- `JobStore` takes an optional `backend_factory` so tests inject a fake and never spawn ML.
+- Uploads are written to `uploads/<random>/<original filename>`. Reason: an upload of an untagged
+  file has no title, and the filename is the only fallback before LRCLIB is asked. Saving every
+  upload as `original.<ext>` made the title literally the string "original", which was then sent
+  to LRCLIB as the track name.
+- SSE sends an immediate `snapshot` event on connect, a `: keepalive` comment every
+  `SSE_KEEPALIVE_S` seconds, and unsubscribes in a `finally`. A client that attaches to an
+  already-`done` job gets the snapshot and the stream closes immediately, instead of being held
+  open on keepalives until the browser gives up.
+- `has_audio_stream` swallows `AudioError` from `probe()`. Reason: the question it answers is
+  "is there audio here?", and an unreadable or non-audio file is a legitimate "no", not a crash.
+- `AUDIO_EXTENSIONS` moved from `metadata.py` to `config.py`. Reason: the server needs it for the
+  upload refusal and the CLI needs it for `--format` validation; `config.py` is the agreed home
+  for constants.
+
+## Full-scale clipping, measured on a real track
+
+A 45 s AAC excerpt of a real song decodes with a **peak of 1.558** and **2631 of 3966976 samples
+(0.066 %)** above full scale. Verified that this is the source, not our decode: the same peak
+appears with and without the resampler. FLAC, WAV and MP3 are all integer PCM and cannot store a
+sample above 1.0, so those samples are clipped on export and the output necessarily differs from
+the decoded mix **outside every censor window** at exactly those samples.
+
+Decision: keep the explicit `np.clip` in `clamp_to_full_scale()`, report the count as
+`RenderStats.clipped_samples` (surfaced in the CLI warning and in the server's `render` payload),
+and never normalise the mix. Reason: normalising would alter the whole track to fix 0.066 % of
+samples, which is a far bigger deviation than the clamp it replaces.
+`tests/test_censor_render.py::test_export_of_an_over_full_scale_mix_stays_close_to_the_mix` pins
+this behaviour and asserts the clamp actually ran, so the test cannot pass vacuously.

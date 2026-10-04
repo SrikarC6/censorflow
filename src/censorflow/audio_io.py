@@ -6,6 +6,7 @@ container ffmpeg can read is accepted. All internal audio is 44.1 kHz stereo flo
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import shutil
@@ -57,8 +58,15 @@ def probe(path: Path) -> dict[str, object]:
 
 
 def has_audio_stream(path: Path) -> bool:
-    """True if the file contains at least one decodable audio stream."""
-    info = probe(path)
+    """True if the file contains at least one decodable audio stream.
+
+    A file ffprobe refuses to read at all has no audio in it, so it answers False rather
+    than raising: callers use this to turn "not a song" into a friendly refusal.
+    """
+    try:
+        info = probe(path)
+    except AudioError:
+        return False
     return any(s.get("codec_type") == "audio" for s in info.get("streams", []))
 
 
@@ -122,6 +130,17 @@ def write(path: Path, data: np.ndarray, sample_rate: int, subtype: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(path), np.asarray(data, dtype=np.float32), sample_rate, subtype=subtype)
     return path
+
+
+def to_wav_bytes(
+    data: np.ndarray, sample_rate: int, subtype: str = config.WAV_SUBTYPE
+) -> bytes:
+    """Encode samples as an in-memory WAV, for HTTP responses that never touch disk."""
+    buffer = io.BytesIO()
+    sf.write(
+        buffer, np.asarray(data, dtype=np.float32), sample_rate, subtype=subtype, format="WAV"
+    )
+    return buffer.getvalue()
 
 
 def to_mono16k(path: Path, dst: Path) -> Path:
