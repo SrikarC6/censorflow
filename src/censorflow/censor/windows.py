@@ -1,8 +1,8 @@
 """Build censor windows and the vocal-subtraction mask.
 
-A window must cover how long a word is actually *sung*, which is usually longer than the
-ASR end time suggests ("fuuuuck"). So the tail is extended while vocal energy persists,
-then padded, floor-lengthed, merged and faded. All thresholds live in `config`.
+A window must cover the sung syllable, then stop. Official Apple Music cleans of the
+same master duck only the vocal for ~90–170 ms and leave the beat; padding and the
+minimum length are sized to that punch. A modest RMS tail still covers a stretched vowel.
 """
 
 from __future__ import annotations

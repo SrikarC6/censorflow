@@ -24,9 +24,11 @@ pulling JS changes, or the browser will quietly run the previous build.
 - [x] `compute/base.py`, `local.py`, `remote.py` stub
 - [x] `workers/` one-shot JSON-line entry points
 - [x] `separation/` interface + Demucs backend
+- [x] Censor default separator is Kim Vocal 2 Mel-Band-RoFormer (`vocals_mel_band_roformer.ckpt`); Demucs `htdemucs_ft` remains `config.DEMUCS_MODEL` / `CENSORFLOW_SEPARATOR_MODEL` fallback
 - [x] `asr/` interface + parakeet-mlx backend
 - [x] `profanity/detect.py` + `data/` wordlists
 - [x] `censor/windows.py`, `censor/render.py`
+- [x] Window geometry matched to Apple Music's same-master vocal duck: ~90–170 ms punches, beat stays, vocals-only subtract (measured on the user's clean vs explicit files in `samples/`)
 - [x] `cli.py` with `censor` (+ `--auto`, `--clip-seconds`)
 - [x] Tests: subtraction, windows, detection, format
 - [x] `uv run pytest -q` passes; headless run produces `_clean.flac`

@@ -518,8 +518,13 @@ export function createBoard(canvas, options = {}) {
   }
 
   function buttonAt(col, row) {
+    // `shown` is the same gate `redraw` uses. Without it, a hidden button from
+    // the previous screen (ANOTHER SONG on awaiting, CHOOSE ANOTHER on mode)
+    // still owns its last grid rect and steals the click - which is how RENDER
+    // on the review screen sent the user back to welcome.
     for (const handle of buttons) {
-      if (handle.enabled !== false && handle.contains(col, row)) return handle;
+      if (!handle.shown || handle.enabled === false) continue;
+      if (handle.contains(col, row)) return handle;
     }
     return null;
   }

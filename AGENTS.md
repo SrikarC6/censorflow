@@ -58,7 +58,7 @@ src/censorflow/
     local.py         LocalBackend: runs workers as subprocesses
     remote.py        RemoteBackend stub: raises NotImplementedError("planned: AWS GPU worker")
   workers/           one-shot entry points: python -m censorflow.workers.<name>
-  separation/        separator backends behind one interface (first: Demucs htdemucs)
+  separation/        separator backends behind one interface (first: Mel-Band-RoFormer vocals; Demucs fallback)
   asr/               parakeet-mlx first; Whisper only as an optional fallback
   lyrics/            lrclib.py, synced.py, align.py, merge.py
   profanity/         detect.py, wordlists in data/
@@ -101,12 +101,14 @@ Job directory: `~/.censorflow/jobs/<id>/` holding `original.*`, `mix.wav`, `voca
 
 ## Censor windows (constants live in `config.py`)
 
-Windows adapt to how long the word is actually sung ("fuuuuck" must be fully covered).
+Windows cover the sung syllable, then stop. An official Apple Music clean of the
+same master ducks only the vocal for ~90–170 ms (median ~130 ms) and leaves the
+beat up; we match that punch size. A modest tail still covers a stretched vowel.
 
 - Start from the word's `start`/`end`.
-- **Tail extension:** compute short-time RMS of the vocal stem (20 ms window, 10 ms hop, mono). `word_peak` = max RMS inside the word. Extend the end forward in 10 ms steps while RMS >= `0.20 * word_peak`; stop after 30 ms of consecutive frames below that, at a hard cap of +800 ms, or at `next_word.start - 10 ms`, whichever comes first.
-- **Padding:** `PAD_PRE_MS = 40`, `PAD_POST_MS = 60`.
-- **Minimum length:** `MIN_WINDOW_MS = 150`. If shorter, grow it symmetrically around the word centre.
+- **Tail extension:** compute short-time RMS of the vocal stem (20 ms window, 10 ms hop, mono). `word_peak` = max RMS inside the word. Extend the end forward in 10 ms steps while RMS >= `0.30 * word_peak`; stop after 30 ms of consecutive frames below that, at a hard cap of +200 ms, or at `next_word.start - 10 ms`, whichever comes first.
+- **Padding:** `PAD_PRE_MS = 20`, `PAD_POST_MS = 40`.
+- **Minimum length:** `MIN_WINDOW_MS = 90`. If shorter, grow it symmetrically around the word centre.
 - **Merge** windows that are closer than 30 ms.
 - **Fades:** `FADE_MS = 10` raised-cosine ramps at both edges, inside the padded window.
 - Everything above is a named constant, not a magic number.
@@ -176,4 +178,4 @@ Job states: `queued, decoding, separating, transcribing, fetching_lyrics, detect
 
 ## Out of scope for now
 
-AWS or any remote compute, dereverb, Roformer or other separator upgrades (the interface must make them a config change later), implementing stem mixing, Electron packaging, accounts or auth, bleep tones, a terminal UI.
+AWS or any remote compute, dereverb, four-stem / mixer RoFormer, implementing stem mixing, Electron packaging, accounts or auth, bleep tones, a terminal UI. Vocal Mel-Band-RoFormer for censor isolation is in scope (config swap).

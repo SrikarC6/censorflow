@@ -41,15 +41,24 @@ def test_padding_is_applied():
     assert abs(w.end - (2.5 + config.PAD_POST_MS / 1000)) < 1e-6
 
 
-def test_stretched_tail_is_fully_covered():
-    """A word sung far longer than its ASR end time must still be covered.
+def test_stretched_tail_is_covered_up_to_the_cap():
+    """A modest sung tail after the ASR end is still covered; a long howl is not.
 
-    The ASR says the word ended at 1.5 s, but the vocal keeps sounding until 1.9 s.
+    The ASR says the word ended at 1.5 s; energy continues to 1.65 s (150 ms),
+    which is inside MAX_TAIL_MS.
     """
-    vocals = burst(440.0, 1.0, 0.9, amp=0.5)
+    vocals = burst(440.0, 1.0, 0.65, amp=0.5)
     rms, hop_s = _rms_of(vocals)
     w = win.build_window(1.0, 1.5, rms=rms, hop_s=hop_s)
-    assert w.end >= 1.9, f"tail left uncovered: window ends at {w.end:.3f}s"
+    assert w.end >= 1.65, f"tail left uncovered: window ends at {w.end:.3f}s"
+
+
+def test_syllable_punch_stays_short():
+    """An 80 ms token plus pads should stay in Apple-clean punch range, not 250+ ms."""
+    w = win.build_window(2.00, 2.08)
+    dur_ms = w.duration * 1000
+    assert dur_ms <= 160
+    assert dur_ms >= config.MIN_WINDOW_MS
 
 
 def test_tail_extension_stops_at_silence():

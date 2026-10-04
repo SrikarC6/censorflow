@@ -20,8 +20,14 @@ ASR_SAMPLE_RATE = 16_000
 ASR_CHANNELS = 1
 
 # --- Separation -----------------------------------------------------------------
-# Demucs via mlx-audio-separator. `htdemucs_ft` is the first model tried; the
-# interface must let this become a config-only change to a Roformer model later.
+# Censoring subtracts the vocal stem from the mix. A leaky stem leaves a quieter
+# copy of the swear, so the default is a vocals-only Mel-Band-RoFormer (Kim Vocal
+# 2, UVR filename). Demucs HT stays a named fallback. Override with
+# CENSORFLOW_SEPARATOR_MODEL. Both are passed to Separator.load_model.
+SEPARATOR_MODEL = os.environ.get(
+    "CENSORFLOW_SEPARATOR_MODEL",
+    "vocals_mel_band_roformer.ckpt",
+)
 DEMUCS_MODEL = "htdemucs_ft.yaml"
 STEMS_CENSOR = ("vocals", "instrumental")
 # Stem mode names, for the later skeleton screen only.
@@ -42,12 +48,14 @@ SEPARATION_QUALITY: dict[str, dict[str, float]] = {
 }
 
 # --- Censor windows (see "Censor windows" in AGENTS.md) -------------------------
-# Windows must cover how long a word is actually sung, so the tail is extended while
-# vocal energy persists rather than trusting the ASR end time alone.
+# Apple Music's clean of the same master is a same-mix vocal duck, not a full-mix
+# mute and not a rewritten take. Punches are short (median ~130 ms, p25 ~90 ms)
+# with the beat left up. We still subtract vocals only; these numbers size the
+# punch like that edit instead of a long padded hole.
 
-PAD_PRE_MS = 40
-PAD_POST_MS = 60
-MIN_WINDOW_MS = 150
+PAD_PRE_MS = 20
+PAD_POST_MS = 40
+MIN_WINDOW_MS = 90
 # Windows closer than this are merged into one.
 MERGE_GAP_MS = 30
 FADE_MS = 10
@@ -56,11 +64,11 @@ FADE_MS = 10
 RMS_WINDOW_MS = 20
 RMS_HOP_MS = 10
 # Extend while frame RMS >= this fraction of the word's own peak RMS.
-RMS_TAIL_FRACTION = 0.20
+RMS_TAIL_FRACTION = 0.30
 # Stop extending after this many consecutive frames below the threshold.
 RMS_TAIL_QUIET_MS = 30
 # Hard cap on tail extension, whatever the energy says.
-MAX_TAIL_MS = 800
+MAX_TAIL_MS = 200
 # Never extend into the next word.
 NEXT_WORD_GUARD_MS = 10
 
@@ -143,9 +151,10 @@ def _project_root() -> Path:
 PROJECT_DIR = _project_root()
 # STT weights, downloaded on first run. Not committed: ~2.3 GB.
 MODEL_DIR = Path(os.environ.get("CENSORFLOW_MODEL_DIR", PROJECT_DIR / "models"))
-# Demucs weights. The separator library keeps its downloads and its converted MLX
-# checkpoints in two directories of its own, both pointed here by env var in
-# `separation/demucs.py` so all model data lives under MODEL_DIR.
+# Separator weights (RoFormer ckpt/safetensors and Demucs YAML). The library keeps
+# downloads and converted MLX checkpoints in two directories of its own, both
+# pointed here by env var in `separation/demucs.py` so all model data lives under
+# MODEL_DIR.
 SEPARATOR_DIR = MODEL_DIR / "mlx-audio-separator"
 SEPARATOR_MODEL_DIR = SEPARATOR_DIR / "models"
 SEPARATOR_DEMUCS_CACHE_DIR = SEPARATOR_DIR / "demucs"

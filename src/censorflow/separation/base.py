@@ -41,4 +41,8 @@ def make_separator(quality: str, output_dir: Path) -> StemSeparator:
             f"Unknown quality {quality!r}. Use one of: "
             f"{', '.join(config.SEPARATION_QUALITY)}."
         )
-    return DemucsSeparator(quality=quality, output_dir=output_dir)
+    return DemucsSeparator(
+        quality=quality,
+        output_dir=output_dir,
+        model_filename=config.SEPARATOR_MODEL,
+    )

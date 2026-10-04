@@ -120,11 +120,36 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
 ## Separation quality
 
 - `config.SEPARATION_QUALITY` presets: `fast` = 0 shifts / 0.25 overlap, `pro` = 2 shifts /
-  0.50 overlap. Measured: separation is ~1.3x realtime and is the pipeline's bottleneck
-  (30.5 s of a 120 s song, vs 7 s for ASR), so this is the knob that matters for iteration.
-  Passed to the separator as a **complete** `demucs_params` dict, because
+  0.50 overlap. Measured on Demucs: separation is ~1.3x realtime and is the pipeline's
+  bottleneck (30.5 s of a 120 s song, vs 7 s for ASR), so this is the knob that matters
+  for iteration. Passed to the separator as a **complete** `demucs_params` dict, because
   `mlx-audio-separator` only fills in its defaults when `demucs_params` is `None`; a partial
-  dict leaves the rest unset.
+  dict leaves the rest unset. RoFormer loads leave `demucs_params` unset (library MDXC
+  defaults).
+- Censor default separator is Kim Vocal 2 Mel-Band-RoFormer, filename
+  `vocals_mel_band_roformer.ckpt` (`config.SEPARATOR_MODEL`). Spike on a 30 s clip:
+  leftover-vocal correlation of residual vs stem is 0.032 (Kim) vs 0.050 (Demucs
+  `htdemucs_ft`) vs 0.081 (`mel-roformer-zfturbo-vocals-v1-mlx`); wall time ~13 s separate
+  after 15 s load vs Demucs ~2.8 s. ZFTurbo is catalog-native MLX (~64 MB) but not quieter.
+  Kim first load converts the UVR ckpt (torch overlay, same as Demucs convert); `save_converted_safetensors=True`
+  writes `<ckpt>.safetensors` so later runs are MLX-only. Demucs remains `config.DEMUCS_MODEL`.
+  Sources: https://pypi.org/project/mlx-audio-separator/0.1.20/ ,
+  https://huggingface.co/mlx-community/mel-roformer-kim-vocal-2-mlx ,
+  https://huggingface.co/mlx-community/mel-roformer-zfturbo-vocals-v1-mlx ,
+  `python -c "from mlx_audio_separator import Separator; help(Separator.load_model)"`.
+
+## Censor window geometry
+
+- Apple Music clean of the same track is the **same master** (global corr 0.982, lag 13 ms),
+  not a rewritten vocal take. 8 of 15 disagreed regions are vocal ducks: bass RMS stays
+  (~1.09×), voice-band RMS drops to ~0.38×, mix RMS drops because the vocal was loud.
+  Median punch 130 ms (p25 92 ms, p75 170 ms). One 150 ms region also dropped the bass
+  (likely a sparse bar, not a policy of silencing the mix). Architecture stays
+  `final = mix - vocals * mask`. Constants moved to that punch size:
+  `PAD_PRE_MS=20`, `PAD_POST_MS=40`, `MIN_WINDOW_MS=90`, `MAX_TAIL_MS=200`,
+  `RMS_TAIL_FRACTION=0.30`. `FADE_MS` stays 10 (click-free raised cosine; 5 ms hops did
+  not show a longer official fade). Did not emulate lyric replacement or full-mix mute.
+  Source: local pair in `samples/` (gitignored); analysis script `tmp/spike/apple_clean_style.py`.
 
 ## Rendering
 

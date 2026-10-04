@@ -1,14 +1,15 @@
-"""Demucs on Apple Silicon, via mlx-audio-separator.
+"""Vocal isolation on Apple Silicon, via mlx-audio-separator.
 
 Two things here are not obvious and both are measured, not assumed:
 
-* `instrumental` is derived as `mix - vocals`, never summed from the other three stems. On
-  a real track the four Demucs stems do not add back up to the mix (RMS error 0.03 against
-  a mix RMS of 0.29), so summing them would leave a hole exactly where the instrumental
-  should be. Subtracting the vocal stem leaves the mix mathematically untouched everywhere
-  else, which is also what `AGENTS.md` rule 1 needs.
-* Only the vocal stem is requested from the separator. Writing four stems we would throw
-  away costs disk and time on a 2.3 GB model, and the instrumental is free.
+* `instrumental` is derived as `mix - vocals`, never summed from other stems. On a real
+  track Demucs's four stems do not add back up to the mix (RMS error 0.03 against a mix
+  RMS of 0.29), so summing them would leave a hole exactly where the instrumental should
+  be. Subtracting the vocal stem leaves the mix mathematically untouched everywhere else,
+  which is also what `AGENTS.md` rule 1 needs.
+* Only the vocal stem is requested from the separator. The default model is a vocals-only
+  Mel-Band-RoFormer; writing extra stems would cost disk and time for nothing, and the
+  instrumental is free.
 
 Apple-only. The mlx imports are guarded, so this module still imports on Linux and raises a
 readable error only when separation is actually attempted.
@@ -49,12 +50,12 @@ def require_apple_silicon() -> None:
 class DemucsSeparator:
     """Two-stem separation: the model supplies vocals, we derive the instrumental."""
 
-    name = "demucs"
+    name = "separator"
 
     def __init__(self, *, quality: str, output_dir: Path, model_filename: str | None = None) -> None:
         self.quality = quality
         self.output_dir = Path(output_dir)
-        self.model_filename = model_filename or config.DEMUCS_MODEL
+        self.model_filename = model_filename or config.SEPARATOR_MODEL
 
     def separate(
         self,
@@ -89,13 +90,18 @@ class DemucsSeparator:
         from mlx_audio_separator import Separator
 
         _point_library_caches_at_project_models()
-        params = {"shifts": 0, "overlap": 0.25, **_quality_overrides(self.quality)}
-        separator = Separator(
-            log_formatter=None,
-            model_file_dir=str(config.SEPARATOR_MODEL_DIR),
-            output_dir=str(self.output_dir),
-            output_format="WAV",
-            demucs_params={
+        kwargs: dict[str, object] = {
+            "log_formatter": None,
+            "model_file_dir": str(config.SEPARATOR_MODEL_DIR),
+            "output_dir": str(self.output_dir),
+            "output_format": "WAV",
+            "output_single_stem": _VOCALS,
+            # Persist the one-time ckpt→safetensors conversion so later runs stay MLX-only.
+            "save_converted_safetensors": True,
+        }
+        if _is_demucs_model(self.model_filename):
+            params = {"shifts": 0, "overlap": 0.25, **_quality_overrides(self.quality)}
+            kwargs["demucs_params"] = {
                 # These four are the library's own defaults; only shifts and overlap are
                 # ours, and they are passed explicitly because passing any of them means
                 # the library stops filling in its defaults.
@@ -104,10 +110,20 @@ class DemucsSeparator:
                 "batch_size": "auto",
                 "seed": None,
                 **params,
-            },
-        )
+            }
+        separator = Separator(**kwargs)
         _report(on_progress, 5.0, f"loading {self.model_filename}")
-        separator.load_model(model_filename=self.model_filename)
+        try:
+            separator.load_model(model_filename=self.model_filename)
+        except ImportError as exc:
+            raise SeparationError(
+                "This vocal model needs a one-time conversion of its checkpoint into MLX "
+                "weights (torch is not a project dependency). Run once: "
+                f"uv run --with torch python -m censorflow.workers.separate "
+                "<mix.wav> <out_dir> after setting CENSORFLOW_SEPARATOR_MODEL="
+                f"{self.model_filename}. Later runs load the saved .safetensors and stay "
+                "MLX-only."
+            ) from exc
 
         _report(on_progress, 10.0, "separating vocals (this is the slow part)")
         started = time.perf_counter()
@@ -148,6 +164,12 @@ class DemucsSeparator:
         return out
 
 
+def _is_demucs_model(model_filename: str) -> bool:
+    """Demucs checkpoints are YAML wrappers; RoFormer ids are ckpt or catalog names."""
+    name = model_filename.lower()
+    return name.endswith((".yaml", ".th")) or "htdemucs" in name
+
+
 def _quality_overrides(quality: str) -> dict[str, float]:
     preset = config.SEPARATION_QUALITY.get(quality)
     if preset is None:
@@ -166,6 +188,7 @@ def _point_library_caches_at_project_models() -> None:
     """
     config.SEPARATOR_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     config.SEPARATOR_DEMUCS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("AUDIO_SEPARATOR_MODEL_DIR", str(config.SEPARATOR_MODEL_DIR))
     os.environ.setdefault("MLX_AUDIO_SEPARATOR_DEMUCS_CACHE_DIR", str(config.SEPARATOR_DEMUCS_CACHE_DIR))
 
 

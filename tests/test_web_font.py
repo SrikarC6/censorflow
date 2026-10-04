@@ -329,7 +329,8 @@ def test_a_sound_toggle_is_clickable_in_both_states() -> None:
     # you need in order to switch the sound on was the one control you could not
     # press. State now goes in the border colour instead.
     text = FLIPDISC_FILE.read_text(encoding="utf-8")
-    assert "handle.enabled !== false && handle.contains(col, row)" in text, (
+    hit = text.split("function buttonAt(col, row)", 1)[1].split("\n  function ", 1)[0]
+    assert "handle.enabled === false" in hit, (
         "hit testing still skips disabled buttons, so a toggle must never be disabled"
     )
     page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
@@ -514,6 +515,15 @@ def test_the_stylesheet_defines_the_flip_disc_palette() -> None:
     assert "font-family: var(--mono)" in css, (
         "body copy must stay monospace; only the dot matrix is a bitmap face"
     )
+
+
+def test_a_hidden_button_is_not_hit() -> None:
+    # Regression: hide() stopped drawing a button but not hitting it. Review opens
+    # via the awaiting screen, which parks ANOTHER SONG in the same band as RENDER,
+    # so the click went to startUpload and the homepage instead of the render.
+    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    body = source.split("function buttonAt(col, row)", 1)[1].split("\n  function ", 1)[0]
+    assert "!handle.shown" in body
 
 
 def test_a_button_keeps_the_callback_it_was_given() -> None:
