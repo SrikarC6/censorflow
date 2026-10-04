@@ -36,12 +36,11 @@ from pydantic import BaseModel, Field
 
 from . import audio_io, config, jobs, lyrics, preview, review
 from .asr.install import SpeechModelInstall
-from .metadata import title_from_filename
+from .metadata import read_metadata
 from .review import JobError
 from .server_files import (
     _add_stem_routes,
     _clip,
-    _duration_or_none,
     _event_stream,
     _job,
     _media_type,
@@ -132,14 +131,19 @@ def _add_api(app: FastAPI) -> None:
     @api.post("/api/upload")
     async def upload(file: Annotated[UploadFile, File()]) -> dict[str, Any]:
         saved, size = await _save_upload(app, file)
-        duration = _duration_or_none(saved)
+        # Tags first, filename second. This is the same resolution order the lyrics stage
+        # uses, so the name on screen is the name we search LRCLIB for. mutagen and ffprobe
+        # both block, hence the thread.
+        track = await asyncio.to_thread(read_metadata, saved)
         logger.info("uploaded %s (%d bytes)", saved.name, size)
         return {
             "source": str(saved),
             "filename": file.filename or saved.name,
             "bytes": size,
-            "duration": duration,
-            "title": title_from_filename(saved),
+            "duration": track.duration,
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
         }
 
     @api.post("/api/jobs", status_code=202)

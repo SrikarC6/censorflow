@@ -77,7 +77,7 @@ async function uploadFile(file) {
   ui.show('mode');
   try {
     state.upload = await api.upload(file, (pct) => say(`UPLOADING ${Math.round(pct)}%`));
-    say(`${state.upload.filename} READY`);
+    say(`${state.upload.title || state.upload.filename} READY`);
   } catch (error) {
     say(error.message, TONE_STOP);
   }

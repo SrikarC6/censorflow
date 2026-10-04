@@ -117,13 +117,6 @@ def _safe_name(filename: str | None) -> str:
     return cleaned[:120]
 
 
-def _duration_or_none(path: Path) -> float | None:
-    try:
-        return audio_io.duration_seconds(path)
-    except audio_io.AudioError:
-        return None
-
-
 # --- events -----------------------------------------------------------------------
 
 

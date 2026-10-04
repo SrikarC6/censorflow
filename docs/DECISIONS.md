@@ -280,6 +280,12 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
 - `primary_artist` splits on `feat.`, `ft.`, `featuring`, `with`, `vs.`, `,`, `;`, `/`, `&`
   and `x`, taking the first credit. Known and accepted limitation: it also splits a genuine
   artist name containing `&` (for example `Simon & Garfunkel`).
+- `POST /api/upload` answers with `read_metadata(saved)` rather than `title_from_filename`.
+  Reason: the mode screen printed the saved *filename*'s title, so a tagged rip showed its
+  track-number-stripped file name (underscores from `_safe_name` and all) instead of the
+  real tag. Tags first, filename second is also the order the lyrics stage resolves in, so
+  the name on the board is now the name LRCLIB is searched for. Runs in `asyncio.to_thread`
+  because mutagen and ffprobe both block.
 
 ## Jobs, review and the server (Phase 3)
 
