@@ -233,7 +233,7 @@ def detect(
     allowlist_path: Path | None = None,
     wordlist: tuple[frozenset[str], frozenset[str]] | None = None,
 ) -> list[Flag]:
-    """Flag profane words in an ASR transcript. ASR timing is authoritative."""
+    """Flag profane words in a transcript, keeping each word's start/end."""
     profane, allowed = wordlist or _cached_wordlist(
         str(extra_path) if extra_path else None,
         str(allowlist_path) if allowlist_path else None,

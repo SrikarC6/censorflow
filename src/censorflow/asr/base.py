@@ -1,7 +1,7 @@
 """Speech recognition behind one interface.
 
-ASR is the source of truth for word *timing*, so the interface returns `Word` records with
-measured start and end times rather than text with line-level alignment.
+Returns `Word` records with measured start and end times. Those times are a first
+guess: `lyrics.align_words` warps them onto the lyric-line clock when lyrics exist.
 """
 
 from __future__ import annotations

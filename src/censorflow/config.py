@@ -104,6 +104,15 @@ LYRICS_SEARCH_ARTIST_PENALTY_S = 300.0
 LYRICS_MIN_LINE_S = 0.2
 LYRICS_MIN_WORD_S = 0.08
 LYRICS_MAX_WORD_S = 2.0
+# Sequence-align ASR tokens onto lyric lines, then warp times onto each line's
+# start/end. Parakeet is the tokeniser; the lyric line is the clock.
+ALIGN_MATCH_SCORE = 3.0
+ALIGN_FAR_SCORE = -1.0
+ALIGN_MISMATCH_SCORE = -2.0
+ALIGN_GAP_SCORE = -1.0
+# Same-text pairs farther apart than this are a "far" match, so a chorus repeat
+# is not glued to the wrong verse. A word or two of ASR drift is well inside.
+ALIGN_TIME_GATE_S = 6.0
 
 # --- Paths ----------------------------------------------------------------------
 

@@ -114,6 +114,7 @@ def run_censor(
     _stage(on_stage, "transcribing")
     _report(on_progress, 72.0, "reading the vocal stem")
     words = backend.transcribe(vocals_path, _scaled(on_progress, 72, 97))
+    words = lyrics.align_words(words, lookup.lines)
     _write_json(job_dir / "words.json", [word.to_dict() for word in words])
 
     _stage(on_stage, "detecting")

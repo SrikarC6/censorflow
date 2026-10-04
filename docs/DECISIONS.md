@@ -198,6 +198,20 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
   like "a", and an estimate is all that is available here. Those flags are marked
   `approx=True` and shown as "verify" in the UI.
 
+## Lyric-line clock (timing fix)
+
+- **ASR is the tokeniser, timed lyric lines are the clock.** On real tracks LRCLIB has
+  `hasWordSync=false`, so there are no per-word lyric times to drop in. Parakeet word
+  spans on sung rap are tiny (median 0.08 s in spike B) and often a word or two off;
+  keeping those times on a `source=both` flag (the old merge rule) muted the neighbouring
+  word. Decision: sequence-align ASR tokens to lyric tokens (Needleman-Wunsch, time-gated
+  so chorus repeats do not glue to the wrong verse), warp each matched line's ASR span
+  onto `[line.start, line.end]`, interpolate lyrics-only holes between aligned neighbours,
+  and shift unmatched ad-libs by the median offset. Provider `line.words` still wins when
+  the token count matches. No Musixmatch/`syncedlyrics` word-sync (still rejected).
+  Source: local observation on `samples/03 Ni__as In Paris.m4a`; spike C `hasWordSync`
+  table in `docs/SPIKE_RESULTS.md`.
+
 ## Metadata (Phase 2)
 
 - `metadata._read_tags` uses a **hand-written key map** (`©art`/`artist`/`tpe1`,

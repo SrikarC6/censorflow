@@ -28,7 +28,11 @@ StageFn = Callable[[str], None]
 
 @dataclass(frozen=True, slots=True)
 class Word:
-    """One recognised word. ASR is the source of truth for timing."""
+    """One recognised word.
+
+    ASR supplies the token; after `lyrics.align_words` the start/end sit on the
+    lyric-line clock when timed lyrics were available.
+    """
 
     text: str
     start: float

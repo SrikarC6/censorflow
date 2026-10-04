@@ -1,32 +1,26 @@
 """Cross-check the ASR transcript against timed lyrics.
 
-The rule, in one line: **ASR decides what to censor and when; lyrics only add words ASR
-missed.** So:
+Timing is applied *before* this module: `align_words` warps the transcript onto the
+lyric-line clock. This module only decides *which* flags to keep or add.
 
 - A profane word the ASR heard is flagged as before, `source=asr`.
-- A profane word that both the lyrics and the ASR saw is upgraded to `source=both`. The
-  extra evidence is worth showing in the review UI but must never move a window.
+- A profane word that both the lyrics and the ASR saw is upgraded to `source=both`.
+  The window stays on the (already aligned) word; merge does not retime it.
 - A profane word in the lyrics that the ASR did **not** hear becomes a new flag with
-  `source=lyrics` and `approx=True`. This is the case the whole stage exists for: ad-libs,
-  heavily autotuned runs and falsetto holds that the model silently drops.
+  `source=lyrics` and `approx=True`. Timing comes from provider word spans, neighbouring
+  aligned words, or a proportional split of the line.
 
-Lyrics-only timing is estimated, never measured. If the line carries real word spans they
-are used; otherwise the token's position inside the line, weighted by word length, decides
-where in the line it sits. Both routes are marked `approx=True` and shown as "verify" in the
-UI, because that is exactly what they are.
-
-A lyric token is matched to an ASR word by whole token, by normalised form, and only when the
-ASR word starts within `_MATCH_SLACK_S` of the estimated position. That keeps a repeated word
-from being "found" in the wrong place.
+A lyric token is matched to an ASR flag by whole token, by normalised form, and only
+when the flag starts within `_MATCH_SLACK_S` of the estimated position.
 """
 
 from __future__ import annotations
 
 import logging
 
-from .. import config
 from ..models import SOURCE_ASR, SOURCE_BOTH, SOURCE_LYRICS, Flag, LyricLine, Word
 from ..profanity import detect
+from .align import token_spans
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +114,7 @@ def _cross_check(
         tokens = detect.tokenise(line.text)
         if not tokens:
             continue
-        for token, start, end in _line_spans(line, tokens):
+        for token, start, end in token_spans(line, tokens, words):
             if not detect.is_profane(token, profane, allowed):
                 continue
             flag_index = _match_flag(flags, token, start, heard, taken)
@@ -187,33 +181,3 @@ def _same_moment(start: float, flags: list[Flag]) -> bool:
     the same window.
     """
     return any(abs(flag.start - start) < _SAME_MOMENT_S for flag in flags)
-
-
-def _line_spans(line: LyricLine, tokens: list[str]) -> list[tuple[str, float, float]]:
-    """Estimate where each token sits inside the line.
-
-    Two routes. Real word spans from the provider, aligned to tokens by order, win.
-    Otherwise the line is divided in proportion to word length, which beats dividing evenly:
-    "everybody" is sung for longer than "a".
-    """
-    span = max(line.end - line.start, config.LYRICS_MIN_LINE_S)
-    if len(tokens) == 1:
-        return [(tokens[0], line.start, line.start + span)]
-
-    if len(line.words) == len(tokens):
-        return [
-            (token, min(max(line.words[index][0], line.start), line.end), min(
-                max(line.words[index][1], line.start), line.end
-            ))
-            for index, token in enumerate(tokens)
-        ]
-
-    weights = [max(len(token), 2) for token in tokens]
-    total = sum(weights)
-    out: list[tuple[str, float, float]] = []
-    cursor = line.start
-    for index, token in enumerate(tokens):
-        width = min(max(span * weights[index] / total, config.LYRICS_MIN_WORD_S), config.LYRICS_MAX_WORD_S)
-        out.append((token, cursor, cursor + width))
-        cursor += width
-    return out

@@ -1,8 +1,8 @@
-"""Lyrics are a cross-check only. Nothing in this package may fail a job.
+"""Lyrics supply the line clock and a cross-check. Nothing here may fail a job.
 
-`lrclib` fetches, `synced` turns a payload into timed lines, `merge` turns timed lines plus
-a transcript into flags. Every public function here returns `None` or an empty list instead
-of raising.
+`lrclib` fetches, `synced` turns a payload into timed lines, `align` warps ASR times onto
+those lines, and `merge` turns the aligned transcript plus lyrics into flags. Every public
+function here returns `None` or an empty list instead of raising.
 
 `lookup` is the one-call convenience wrapper the pipeline uses: source file in, timed lines
 out. It lives here rather than in `pipeline.py` so the pipeline does not need to know the
@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..models import LyricLine, TrackInfo
+from .align import align_words, token_spans
 from .lrclib import LyricsRecord, fetch, shutdown
 from .merge import merge_flags
 from .synced import lines_from_record, parse_lyricsfile, parse_synced_lyrics
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "LyricsLookup",
     "LyricsRecord",
+    "align_words",
     "fetch",
     "lines_from_record",
     "lookup",
@@ -33,6 +35,7 @@ __all__ = [
     "parse_lyricsfile",
     "parse_synced_lyrics",
     "shutdown",
+    "token_spans",
 ]
 
 

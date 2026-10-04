@@ -41,9 +41,8 @@ class TestUpgrades:
         assert len(flags) == 1
         assert flags[0].source == SOURCE_BOTH
 
-    def test_an_upgrade_never_moves_the_window(self) -> None:
-        # The line runs 10.0-11.2 s and the word is sung at 10.7-10.9 s. The estimate puts
-        # it at ~10.6 s; the ASR timing must win regardless.
+    def test_merge_does_not_retime_an_already_placed_word(self) -> None:
+        # Alignment is what moves a late transcript. Merge only upgrades source.
         words = _words(("yeah", 10.0, 10.2), ("snork", 10.7, 10.9))
         flags = merge_flags(
             words,

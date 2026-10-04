@@ -38,6 +38,7 @@ pulling JS changes, or the browser will quietly run the previous build.
 - [x] Timeouts, try/except, gitignored cache; lookup failure never fails a job
 - [x] Tests: merge with fake lyric data
 - [x] Provenance reported per flag; job without lyrics still completes
+- [x] Align ASR word times onto the lyric-line clock (`lyrics/align.py`); sequence-align then warp. Lyrics-only misses interpolate. ASR-only ad-libs take the median offset.
 
 ## Phase 3 - server and jobs
 
