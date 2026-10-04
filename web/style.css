@@ -18,14 +18,31 @@
   --on-hi: rgba(255, 230, 140, 0.42);
   /* A dimmed amber: disabled controls and stages that have not run yet. */
   --on-dim: #6b5620;
-  /* Sign borders, so a control can be told apart from a label at a glance:
-     green for something that acts, red for something that stops or is off. */
-  --on-go: #2fbf71;
-  --on-stop: #e5484d;
 
   --fg: var(--on);
   --dim: #6b7385;
   --line: #222836;
+
+  /*
+   * The plate, in one place. Every sign in the app is this: an opaque panel the
+   * colour of the board, a hairline border, and a dot of air inside it. The HTML
+   * specimens under "Samples on Floating Plates" are `.chip` below and the
+   * canvas-drawn signs - buttons, the progress bar, the banner - read these same
+   * variables in flipdisc.js, so one edit here restyles both. Nothing else is a
+   * container.
+   */
+  --plate-bg: var(--bg);
+  --plate-line: var(--line);
+  --plate-pad: 1;
+
+  /*
+   * A plate's border says what the control will do, so it is colour-coded rather
+   * than decorated: green goes, red stops. Amber on its own cannot carry that,
+   * and a red/green pair stays legible to a red-green colour-blind reader because
+   * they differ in lightness as well as hue.
+   */
+  --go: #2fbf71;
+  --stop: #e5484d;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   /*
    * Body copy stays monospace on purpose: it is the dense, selectable text
@@ -216,9 +233,14 @@ button.html:focus-visible {
   line-height: calc(var(--pad, 4px) * 2.5);
   letter-spacing: 0.04em;
   max-width: 96ch;
-  height: calc(var(--pad, 4px) * 8);
+  /*
+   * Prose is the one thing here that is allowed to grow: a fixed height silently
+   * clipped long paragraphs and let the board's own text print over the top of
+   * them. The line height is still a whole number of dots, and only the tiles and
+   * their captions need whole-dot boxes, because those carry the grid.
+   */
+  min-height: calc(var(--pad, 4px) * 8);
   margin: 0;
-  overflow: hidden;
 }
 
 .fonttest code,
@@ -303,10 +325,50 @@ button.html:focus-visible {
  */
 .fonttest .chip {
   display: inline-block;
-  background: var(--bg);
-  outline: 1px solid var(--line);
+  background: var(--plate-bg);
+  outline: 1px solid var(--plate-line);
   outline-offset: -1px;
   padding: var(--pad, 4px);
   margin: 0 calc(var(--pad, 4px) * 2) calc(var(--pad, 4px) * 2) 0;
   line-height: 0;
+}
+
+/*
+ * The two semantic plates, same box and same hairline, only the border colour
+ * differs. A canvas sign picks the same two by passing `tone: 'go' | 'stop'` to
+ * `board.button`, which resolves to --go / --stop here.
+ *
+ * The lettering takes the border colour too, on the board and here alike: a green
+ * frame around amber dots reads as two things bolted together, a green frame
+ * around green dots reads as one sign.
+ */
+.fonttest .chip.go {
+  outline-color: var(--go);
+  color: var(--go);
+}
+
+.fonttest .chip.stop {
+  outline-color: var(--stop);
+  color: var(--stop);
+}
+
+/*
+ * A colour chip in running text, so the prose can name the two semantic borders
+ * without a second sentence describing them.
+ */
+.fonttest .swatch {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  vertical-align: -0.1em;
+  outline: 2px solid var(--line);
+  outline-offset: -1px;
+}
+
+.fonttest .swatch.go {
+  outline-color: var(--go);
+}
+
+.fonttest .swatch.stop {
+  outline-color: var(--stop);
 }

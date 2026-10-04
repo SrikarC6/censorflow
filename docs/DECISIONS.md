@@ -396,35 +396,35 @@ any screen was built. Decisions that outlive the test page:
   design asset for the processing screen (a wipe has real material to work with once a stage
   list is on the board), and deleting 350 lines of reviewed port would be the more expensive
   mistake. Decide before 4b whether they are used or cut.
-- **Every cell is drawn as a disc; nothing is ever a filled square.** Regression fix with a design
-  rule behind it: `paint()` had been filling a lit cell with `ctx.fillStyle = colours.on` before
-  stamping the highlight, which turned every dot on the board into an amber square and defeated
-  the entire premise. `paint()` now erases each cell to the background and then draws the state as
-  a disc. `renderField` had the same bug in its lit-cell pass (it filled with the lit colour to
-  hide the unlit disc underneath a specimen tile), which is why the tiles had square glyphs too.
-- **Inverted is a hole, not a dot.** `INV` draws a background-coloured disc at `radius *
-  INV_OVERDRAW` (1.08) so it fully covers the lit flap beneath it. Hovering a plate lights its
-  interior and knocks the label out as dark gaps in it: the sign inverts, and it stays dots. Same
-  size would have left an amber rim from antialiasing.
-- **Sound came back; the wipe did not.** The user asked for the flip clicks back and for the wipe
-  to stay gone. `SOUND` clicks on every press (`playRowFlip`), `ANIMATE` scatters the occasional
-  lone flip over the empty board - both were judged to be about the field, but as sound and as
-  sparse isolated dots they still work on a bare board. The wipe was not brought back: there is
-  nothing on a bare board to wipe. `startIdleFlips` skips `board.isProtected` cells, so a flip can
-  never land on a sign.
-- **`startMarquee(board, ...)` in `flip-motion.js`.** A banner across the top of the board, text
-  travelling right to left. This is the one animation the brief explicitly rules out ("no
-  scrolling marquee") and it was asked for by name, so it is here with the deviation recorded. The
-  caption is laid out once into lit cells and repeated sideways until the strip is wider than the
-  sign, which makes the wrap seamless with no seam case; each tick repaints only the sign's
-  interior, one column per `stepMs` on a timer rather than a frame callback, because at one column
-  a tick there is nothing to interpolate. `prefersReducedMotion` draws one static screenful.
-- **A control is told from a caption by its border.** Two extra cell states, `GO = 4` and
-  `STOP = 5`, draw from new `--on-go` / `--on-stop` variables; `button({ tone })` picks between
-  `go`, `stop` and the plain amber `label` frame. States rather than a parallel colour channel
-  because `plate` and `stroke` already take a state. The frame **keeps its tone while hovered** -
-  the interior and the label do the inverting, and a border that vanished under the cursor would
-  stop saying what the control does.
-- **No dot text on the bare board.** The one bare `stampText` on the board (`BOARD CONTROLS`) is
-  gone: a scrap of dot text with no plate under it is exactly the noise the plates were introduced
-  to remove.
+- **A lit cell is a disc, never a square.** Regression: `paint()` had been reduced to
+  `fillStyle = colours.on; fillRect(...)` with no `drawDisc`, so every lit cell was an amber
+  square and `renderField` had the same bug. The dots are the design - a square grid of
+  coloured blocks is not a flip-disc display. Both now erase to the background and draw a
+  round flap, and `tests/test_web_font.py` pins it.
+- **The plate is a remembered box with a hairline border, not a row of dots.** `PLATE_LINE = 1`
+  CSS px: `drawPanelEdges` fills the four outer edges of the plate, so the border is a drawn
+  line at the resolution of the display, exactly like the HTML `.chip`'s `1px solid`. The plate
+  is remembered in a `panels` array rather than baked into the cell buffer, which is what lets
+  the marquee re-plate 22 times a second (`key` replaces a record instead of appending) and
+  what makes a hover a single `redraw()` pass instead of a partial repaint.
+- **Semantic tones carry their colour into the lettering.** `tone: 'go' | 'stop'` sets the
+  hairline; `plate({ ink })` sets the colour of the dots inside it, so a green frame holds
+  green dots instead of a green frame around amber dots - one object instead of two bolted
+  together. `renderField` takes the same `ink` so an HTML chip and a canvas button agree. The
+  specular highlight is skipped on a tinted disc: it belongs to the amber flaps and on a green
+  dot it reads as a stray light speck. While a toned plate is lit, `ink` is dropped and the
+  label is knocked out instead, so the inversion still reads.
+- **A disabled sign keeps dim lettering.** `OFF` is toned `stop` but `setEnabled(false)`, so its
+  dots stay `DIM` rather than turning red: a disabled control must not look armed.
+- **A sound toggle must never be disabled.** Regression: `soundBtn.setEnabled(isSoundEnabled())`
+  meant the one control needed to turn sound *on* was not clickable, because a disabled handle
+  is skipped by `buttonAt`. It now only changes tone.
+- **Prose boxes may grow; tiles may not.** `.note` is `min-height` only. A fixed `height` plus
+  `overflow: hidden` silently ate the end of every long paragraph and the board's own dot text
+  printed through the gap.
+- **The banner is the one deliberate exception to the no-animation rule.** It scrolls the whole
+  caption continuously, one column per `setTimeout`, treating the strip as **periodic**: each
+  cell is offered at two positions one repeat apart, so the wrap has no seam and nothing
+  resets. `prefers-reduced-motion` draws a single static frame. `gap` (14 dots) separates one
+  repeat from the next, because the two are the same sentence and without air between them they
+  read as one run-on word.

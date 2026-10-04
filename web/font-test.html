@@ -30,17 +30,16 @@
 
       <h1>Board controls — hover and press</h1>
       <p class="note" id="controls-note">
-        Drawn on the real board at grid coordinates with hit-testing in grid space.
-        A button is a sign: bare board inside, a coloured dot frame, and on
-        hover or press every flap in it turns over — the interior fills with amber
-        dots and the label knocks out as dark gaps in them. Still dots; the sign
-        inverts, it never becomes a solid block, and the frame keeps its colour so
-        you can still tell what the control does. The border is the label: green
-        for a control that acts (PRESS, BAR, SOUND, FONT), red for one that stops
-        or is unavailable (ANIMATE, OFF). OFF is disabled, so it keeps its shape
-        and dims instead of vanishing. ANIMATE scatters occasional lone flips
-        across the empty board, SOUND clicks each press. There is no wipe: the
-        board is bare, so there would be nothing to wipe.
+        Drawn on the real board at grid coordinates with hit-testing in grid space,
+        and built from the same plate as the specimens below: opaque panel, one
+        hairline border, a dot of air inside. The border is what carries meaning —
+        <span class="swatch go"></span> green for a control that goes,
+        <span class="swatch stop"></span> red for one that stops, plain for
+        neither. Hover or press and the panel lights in its own colour with the
+        label knocked out of it. OFF is disabled: it keeps its plate and dims its
+        label. SOUND is a toggle and stays clickable in both states; its border
+        tells you which one you are in. The board is bare, so there is no wipe and
+        nothing idle-flips.
       </p>
       <p class="note" id="demo-readout">no presses yet</p>
 
@@ -73,6 +72,16 @@
       <h1>Small text on the same plates — scale 2 / 1</h1>
       <div class="plates" id="samples-small"></div>
 
+      <h1>The two semantic plates</h1>
+      <p class="note">
+        The same box, only the hairline differs. A canvas sign picks these by
+        passing <code>tone: 'go'</code> or <code>tone: 'stop'</code> to
+        <code>board.button</code>, which resolves to <code>--go</code> and
+        <code>--stop</code> here, so an HTML specimen and a drawn sign cannot
+        drift apart.
+      </p>
+      <div class="plates" id="tones"></div>
+
       <h1>Long lines at scale 1, as the review screen will use them</h1>
       <div class="plates" id="long"></div>
     </main>
@@ -91,7 +100,7 @@
         textCols,
         FONTS,
       } from './font5x7.js';
-      import { startIdleFlips, prefersReducedMotion, startMarquee } from './flip-motion.js';
+      import { startMarquee } from './flip-motion.js';
       import { isSoundEnabled, setSoundEnabled, subscribeSound, playRowFlip } from './flip-sound.js';
 
       const pitch = pitchFromLocation();
@@ -106,7 +115,7 @@
 
       // A scale-1 button is 7 glyph rows + 4 = 11 rows tall; a progress sign is 7
       // caption rows, 3 of air, the bar and 2 of foot. The rows need real air.
-      const ROW = { banner: 0, controls: 14, progress: 30, reserved: 45 };
+      const ROW = { banner: 0, title: 14, controls: 27, progress: 43, reserved: 58 };
 
       const readout = document.getElementById('demo-readout');
       let barPct = 0.62;
@@ -116,6 +125,9 @@
       // of it rather than tracked here.
       const click = (discs = 4, large = false) => playRowFlip(discs, large);
 
+      // Borders say what a control does: green goes, red stops, plain for
+      // neither. That is the whole reason the plate border is a colour and not a
+      // decoration, so the demo strip uses all three.
       const pressMe = board.button({
         col: 2,
         row: ROW.controls,
@@ -131,12 +143,10 @@
         col: 2,
         row: ROW.controls,
         label: 'BAR',
-        tone: 'go',
         onClick: () => {
           click();
           barPct = barPct >= 0.999 ? 0 : Math.min(1, barPct + 0.19);
           readout.textContent = `progress ${Math.round(barPct * 100)}%`;
-          board.redraw();
         },
       });
 
@@ -151,51 +161,28 @@
       });
       dead.setEnabled(false);
 
-      // Idle flips: one lone flap turning over somewhere empty every second or
-      // so. Nothing is wiped, nothing sweeps - the board is bare, so a wipe would
-      // have nothing to wipe. Reduced motion wins over the toggle, as it should.
-      let animate = false;
-      let stopIdle = null;
-
-      function setAnimate(next) {
-        animate = next;
-        animBtn.setEnabled(animate);
-        stopIdle?.();
-        stopIdle = animate ? startIdleFlips(board) : null;
-        readout.textContent = animate ? 'idle flips on' : 'idle flips off';
-      }
-
-      const animBtn = board.button({
-        col: 2,
-        row: ROW.controls,
-        label: 'ANIMATE',
-        tone: 'stop',
-        onClick: () => setAnimate(!animate),
-      });
-      // A visitor who asked for reduced motion never gets the toggle either.
-      animBtn.setEnabled(!prefersReducedMotion());
-
+      // Sound is a toggle, so it has to stay clickable in both states: an earlier
+      // version greyed the label out when sound was off, which also made the
+      // button unhittable, so the one control you need to fix it was the one
+      // control you could not press. The border carries the state instead -
+      // green when the clicks are on, red when they are off.
       const soundBtn = board.button({
         col: 2,
         row: ROW.controls,
         label: 'SOUND',
-        tone: 'go',
-        onClick: () => {
-          setSoundEnabled(!isSoundEnabled());
-          click(2);
-        },
+        tone: isSoundEnabled() ? 'go' : 'stop',
+        onClick: () => setSoundEnabled(!isSoundEnabled()),
       });
-      soundBtn.setEnabled(isSoundEnabled());
       subscribeSound((on) => {
-        soundBtn.setEnabled(on);
+        soundBtn.setTone(on ? 'go' : 'stop');
         readout.textContent = on ? 'sound on' : 'sound off';
+        if (on) click(2);
       });
 
       const fontBtn = board.button({
         col: 2,
         row: ROW.controls,
         label: 'FONT: SERIF',
-        tone: 'go',
         onClick: () => {
           const next = fontName() === 'serif' ? 'sans' : 'serif';
           setFont(next);
@@ -203,10 +190,7 @@
           click(6, true);
 renderAll();
 
-      window.addEventListener('pagehide', () => {
-        stopIdle?.();
-        stopBanner?.();
-      });
+      window.addEventListener('pagehide', () => stopBanner?.());
           board.redraw();
           readout.textContent = `font set: ${next} ${glyphSize().cols}x${glyphSize().rows}`;
         },
@@ -243,7 +227,8 @@ renderAll();
       }
 
       board.onDraw((b) => {
-        placeRow([pressMe, bump, dead, animBtn, soundBtn, fontBtn], 2, ROW.controls);
+        b.stampText('BOARD CONTROLS', 2, ROW.title, { scale: 1 });
+        placeRow([pressMe, bump, dead, soundBtn, fontBtn], 2, ROW.controls);
         b.progress({
           col: 2,
           row: ROW.progress,
@@ -279,7 +264,7 @@ renderAll();
        * thing you are inspecting. The board itself stays bare, so the field is
        * bounded by the tile - the specimen sheet has texture, the UI does not.
        */
-      function tileCanvas(text, scale, pad = 1) {
+      function tileCanvas(text, scale, pad = 1, tone = '') {
         const canvas = document.createElement('canvas');
         const { cols, rows } = measureFlipText(text, scale);
         const { cells } = layoutFlipCells(text, scale);
@@ -288,6 +273,9 @@ renderAll();
           cols: cols + pad * 2,
           rows: rows + pad * 2,
           lit: cells.map((cell) => [cell.x + pad, cell.y + pad]),
+          // A semantic chip letters itself in its own colour, the same way a
+          // toned button does, so the two read as the same kind of object.
+          ink: tone ? board.colours[tone] : null,
         });
         return canvas;
       }
@@ -352,7 +340,7 @@ renderAll();
         return Math.floor((inner - chrome * pitch) / pitch);
       }
 
-      function plates(hostId, lines, scales, { chip = false } = {}) {
+      function plates(hostId, lines, scales, { chip = false, tone = '' } = {}) {
         const host = document.getElementById(hostId);
         const maxCols = plateCols();
         scales.forEach((want) => {
@@ -361,9 +349,9 @@ renderAll();
                the section is a fixed-size specimen sheet, not a responsive layout. */
             let scale = want;
             while (scale > 1 && textCols(line, scale) > maxCols) scale -= 1;
-            const canvas = tileCanvas(line, scale);
+            const canvas = tileCanvas(line, scale, 1, tone);
             const holder = document.createElement(chip ? 'span' : 'figure');
-            if (chip) holder.className = 'chip';
+            if (chip) holder.className = tone ? `chip ${tone}` : 'chip';
             holder.append(canvas);
             if (!chip) {
               const caption = document.createElement('figcaption');
@@ -395,7 +383,7 @@ renderAll();
       function renderAll() {
         ['letters-1', 'letters-1-caps', 'letters-2', 'letters-2-caps', 'symbols-1',
           'symbols-1-caps', 'symbols-2', 'symbols-2-caps', 'all', 'all-caps',
-          'samples-big', 'samples-small', 'long'].forEach((id) => {
+          'samples-big', 'samples-small', 'tones', 'long'].forEach((id) => {
           document.getElementById(id).replaceChildren();
         });
 
@@ -407,6 +395,9 @@ renderAll();
 
         plates('samples-big', SAMPLES, [4, 3, 2, 1], { chip: true });
         plates('samples-small', SAMPLES, [2, 1], { chip: true });
+
+        plates('tones', ['CENSOR THE SONG', 'RENDER'], [2], { chip: true, tone: 'go' });
+        plates('tones', ['CANCEL', 'START OVER'], [2], { chip: true, tone: 'stop' });
         plates('long', ['WORD 42  1.44  1.79  BOTH  VERIFY',
           'FLAGS 5 OF 527 WORDS  2.03 SECONDS MUTED'], [1], { chip: true });
 

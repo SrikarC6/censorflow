@@ -40,20 +40,27 @@ export const INV = 2;
 export const DIM = 3;
 
 /**
- * Frame colours. A control is told apart from a label by its border, not by its
- * text: green means it does something, red means it stops something or is off.
- * They are cell states rather than paint options because `plate` and `stroke`
- * take a state, and one more state is cheaper than a parallel colour channel.
+ * How much wider an inverted flap is drawn than a lit one, as a fraction of the
+ * disc radius. Big enough to cover the lit flap underneath it and to close up into
+ * a readable letter: an inverted cell has to be a hole in the dots that still
+ * traces the word, not a dot on top of dots.
  */
-export const GO = 4;
-export const STOP = 5;
+const INV_OVERDRAW = 1.16;
 
 /**
- * How much wider an inverted flap is drawn than a lit one, as a fraction of the
- * disc radius. Just enough to cover the lit flap underneath it: an inverted cell
- * has to be a hole in the dots, not a dot on top of dots.
+ * Thickness of a plate's border, in CSS pixels.
+ *
+ * One hairline, continuous, exactly like the `.chip` outline in the stylesheet.
+ * It was a row of dots before, and the dots read as a beaded frame rather than as
+ * the edge of a panel: the whole point of the plate look is that the border is
+ * drawn, not made of the same material as the letters inside it.
  */
-const INV_OVERDRAW = 1.08;
+const PLATE_LINE = 1;
+
+/** The semantic tones a plate border can carry. */
+export const TONE_GO = 'go';
+export const TONE_STOP = 'stop';
+export const TONE_PLAIN = 'plain';
 
 const RESIZE_DEBOUNCE_MS = 80;
 
@@ -66,8 +73,12 @@ function readColours() {
     bg: pick('--bg', '#05080D'),
     hi: pick('--on-hi', 'rgba(255,230,140,0.42)'),
     dim: pick('--on-dim', '#6B5620'),
-    go: pick('--on-go', '#2FBF71'),
-    stop: pick('--on-stop', '#E5484D'),
+    // The plate, read from the same variables the HTML `.chip` uses, so the
+    // canvas signs and the HTML specimens cannot drift apart.
+    plateBg: pick('--plate-bg', '') || pick('--bg', '#05080D'),
+    plateLine: pick('--plate-line', '') || pick('--line', '#222836'),
+    go: pick('--go', '#2FBF71'),
+    stop: pick('--stop', '#E5484D'),
   };
 }
 
@@ -99,7 +110,7 @@ export function pitchFromLocation(search = window.location.search) {
  */
 export function renderField(
   canvas,
-  { pitch, cols, rows, lit = [], colours = readColours(), paintField = true },
+  { pitch, cols, rows, lit = [], colours = readColours(), paintField = true, ink = null },
 ) {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const ctx = canvas.getContext('2d');
@@ -135,8 +146,10 @@ export function renderField(
       ctx.fillStyle = colours.bg;
       ctx.fillRect(x, y, pitch, pitch);
     }
-    drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.on);
-    drawHighlight(ctx, x + pitch / 2, y + pitch / 2, radius, colours.hi);
+    // `ink` lets a caller draw the same specimen in a semantic colour, which is
+    // how an HTML chip and a canvas button end up with the same lettering.
+    drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, ink ?? colours.on);
+    if (!ink) drawHighlight(ctx, x + pitch / 2, y + pitch / 2, radius, colours.hi);
   }
 }
 
@@ -175,6 +188,12 @@ export function createBoard(canvas, options = {}) {
    * flickering the words, which is the whole point of a status display.
    */
   let guard = new Uint8Array(0);
+  /**
+   * Every plate currently on the board, in draw order. Rebuilt from scratch on
+   * each `redraw`, because a plate is a box and a border rather than a run of
+   * cells: it is remembered, and `paint` consults it for any cell inside one.
+   */
+  const panels = [];
   const radius = (pitch * DISC_FILL) / 2;
 
   const painters = [];
@@ -197,40 +216,35 @@ export function createBoard(canvas, options = {}) {
     const y = row * pitch;
     const cx = x + pitch / 2;
     const cy = y + pitch / 2;
-    // Every cell is erased to the background, then whatever the state calls for
-    // is drawn as a disc. Nothing on this board is ever a filled square: the
-    // dots are the design, so a lit cell is a round flap and the gaps between
-    // flaps stay background.
-    ctx.fillStyle = colours.bg;
+    // A cell inside a plate is the plate's own colour, not the board's, and its
+    // outermost ring carries the hairline. Outside a plate the cell is the board.
+    const panel = panelAt(col, row);
+    ctx.fillStyle = panel ? panel.fill : colours.bg;
     ctx.fillRect(x, y, pitch, pitch);
-    if (state === OFF) {
-      // The board is deliberately bare. An always-on grid of unlit discs is noise
-      // behind every label: the eye reads the field, not the text. Dots are ink,
-      // drawn only where something is actually written, which is what makes the
-      // plates read as physical signs sitting on an empty board.
-      return;
-    }
+    if (panel) drawPanelEdges(panel, col, row, x, y);
+    // Nothing on this board is ever a filled square: the dots are the design, so
+    // a lit cell is a round flap and the gaps between flaps stay background.
+    if (state === OFF) return;
     if (state === DIM) {
       drawDisc(ctx, cx, cy, radius, colours.dim);
       return;
     }
-    if (state === GO) {
-      drawDisc(ctx, cx, cy, radius, colours.go);
-      return;
-    }
-    if (state === STOP) {
-      drawDisc(ctx, cx, cy, radius, colours.stop);
-      return;
-    }
     if (state === INV) {
-      // Inverted: a flap flipped to its dark side. It is drawn a hair wider than
-      // a lit disc so it fully covers the flap underneath it, which is what a
-      // knocked-out letter on a lit plate is - a gap in the dots, not a new dot.
-      drawDisc(ctx, cx, cy, radius * INV_OVERDRAW, colours.bg);
+      // Inverted: a flap flipped to its dark side. Drawn in the plate's own
+      // resting colour and a hair wider than a lit disc, so it fully covers the
+      // flap underneath: a knocked-out letter is a gap in the dots, not a dot on
+      // top of dots. The knock-out follows the letterforms, which is what keeps
+      // the word readable while the plate behind it is lit.
+      drawDisc(ctx, cx, cy, radius * INV_OVERDRAW, colours.plateBg);
       return;
     }
-    drawDisc(ctx, cx, cy, radius, colours.on);
-    drawHighlight(ctx, cx, cy, radius, colours.hi);
+    // A plate may claim the ink for its own lettering, so a sign whose border is
+    // green or red has dots of that same colour rather than amber dots inside a
+    // green frame. The specular highlight belongs to the amber flaps only: on a
+    // tinted disc it would read as a stray light dot.
+    const ink = panel && panel.ink ? panel.ink : colours.on;
+    drawDisc(ctx, cx, cy, radius, ink);
+    if (ink === colours.on) drawHighlight(ctx, cx, cy, radius, colours.hi);
   }
 
   function repaintAll() {
@@ -276,29 +290,95 @@ export function createBoard(canvas, options = {}) {
   }
 
 /**
-   * A sign: a rectangle of cells with a one-dot frame.
+   * A plate: an opaque panel the colour of the board with a hairline border.
    *
-   * This is the only container the UI uses. Because the board no longer paints a
-   * field, an unlit region is already the background colour, so a plate is exactly
-   * `fill` plus a frame - which is what `button` and `progress` already do. It is
-   * spelled out as its own call so screens can put a caption on a sign without
-   * inventing a button.
+   * This is the only container the UI uses, and it is deliberately the same box
+   * as the `.chip` specimens in the stylesheet - same background, same hairline,
+   * same dot of air inside - so a sign drawn here and a specimen drawn in HTML
+   * are the same object. `fill` is the panel colour, normally the board colour;
+   * `tone` colours the border and is how a control says what it will do.
    *
-   * `body` is the interior. At rest it is OFF, which means bare board, so the
-   * label floats on black. Hovering a button sets it to ON, which lights every
-   * interior flap: the plate fills with amber dots and the label is then stamped
-   * INV, knocking holes in those dots. Still dots everywhere - the sign inverts,
-   * it never turns into a solid block.
+   * The panel is remembered rather than baked into the cell buffer, so `redraw`
+   * can rebuild it from scratch: clearing the buffer and re-running the painters
+   * is enough, and `paint` re-draws the panel whenever it walks a cell inside
+   * one. `repaintAll` therefore cannot erase a plate.
+   *
+   * `key` names the panel so a caller that redraws one plate many times a second -
+   * the scrolling banner - replaces its record instead of appending a new one.
    */
-  function plate({ col, row, cols: width, rows: height, body = OFF, frame = ON } = {}) {
-    fill(col, row, width, height, body);
-    stroke(col, row, width, height, frame);
+  function plate({
+    col,
+    row,
+    cols: width,
+    rows: height,
+    fill,
+    tone = TONE_PLAIN,
+    key = null,
+    ink = null,
+  } = {}) {
+    const record = {
+      col,
+      row,
+      cols: width,
+      rows: height,
+      fill: fill ?? colours.plateBg,
+      border: tone === TONE_GO ? colours.go : tone === TONE_STOP ? colours.stop : colours.plateLine,
+      // `ink` is the colour the plate's own lettering takes. Left null the plate
+      // uses the standard amber; a toned plate passes its tone colour so the dots
+      // match the hairline. The caller passes null again while it is lit, because
+      // then the lettering is knocked out instead.
+      ink: ink ?? null,
+    };
+    const existing = key === null ? -1 : panels.findIndex((other) => other.key === key);
+    if (existing === -1) {
+      record.key = key;
+      panels.push(record);
+    } else {
+      panels[existing] = record;
+    }
     for (let r = row; r < row + height; r += 1) {
       for (let c = col; c < col + width; c += 1) {
+        put(c, r, OFF);
         if (inside(c, r)) guard[index(c, r)] = 1;
       }
     }
-    return { col, row, cols: width, rows: height };
+    for (let r = row; r < row + height; r += 1) {
+      for (let c = col; c < col + width; c += 1) paint(c, r);
+    }
+    return { col, row, cols: width, rows: height, tone };
+  }
+
+  /** The plate covering a cell, if any. Panels are few, so this is a plain scan. */
+  function panelAt(col, row) {
+    for (const record of panels) {
+      if (col < record.col || col >= record.col + record.cols) continue;
+      if (row < record.row || row >= record.row + record.rows) continue;
+      return record;
+    }
+    return null;
+  }
+
+  /**
+   * The hairline, one cell edge at a time.
+   *
+   * Drawn per cell rather than as a single `strokeRect` so that the repaint of a
+   * single cell - which is what hover, press and the marquee all do - keeps the
+   * border intact. `PLATE_LINE` is a CSS pixel, so at a 2x display it lands as a
+   * two-device-pixel line and stays crisp.
+   */
+  function drawPanelEdges(panel, col, row, x, y) {
+    ctx.fillStyle = panel.border;
+    if (col === panel.col) ctx.fillRect(x, y, PLATE_LINE, pitch);
+    if (col === panel.col + panel.cols - 1) ctx.fillRect(x + pitch - PLATE_LINE, y, PLATE_LINE, pitch);
+    if (row === panel.row) ctx.fillRect(x, y, pitch, PLATE_LINE);
+    if (row === panel.row + panel.rows - 1) ctx.fillRect(x, y + pitch - PLATE_LINE, pitch, PLATE_LINE);
+  }
+
+  /** The fill colour a tone means, for a plate lit in that tone. */
+  function toneColour(tone) {
+    if (tone === TONE_GO) return colours.go;
+    if (tone === TONE_STOP) return colours.stop;
+    return colours.on;
   }
 
   /**
@@ -326,26 +406,22 @@ export function createBoard(canvas, options = {}) {
   }
 
   /**
- * Border state for each tone. `label` is the plain amber frame a caption gets;
- * `go` and `stop` are how a control says what it is before you read it.
- */
-const TONES = { label: ON, go: GO, stop: STOP };
-
-/**
-   * A dot-drawn rectangle with a label, hit-tested in grid coordinates.
-   * Hover and press swap the two colours, which is why cell state carries a
-   * third value: the interior has to read as a hole in a lit field.
+   * A plate with a label on it, hit-tested in grid coordinates.
    *
-   * `tone` picks the border: `go` for a control that acts, `stop` for one that
-   * halts or is unavailable, `label` for the plain amber frame.
+   * The border colour is the point of `tone`: a control says what it will do
+   * before it is touched - green goes, red stops, plain for neither. Hover and
+   * press light the panel in that same tone and knock the label out of it, which
+   * is the instant inversion from before, just with a drawn border instead of a
+   * beaded one. A disabled button keeps its plate and dims its label: an empty
+   * outline reads as a rendering bug rather than as "not available yet".
    */
-  function button({ col, row, label, scale = 1, font, tone = 'label', onClick }) {
+  function button({ col, row, label, scale = 1, font, tone = TONE_PLAIN, onClick }) {
     const handle = {
       col,
       row,
       label,
       scale,
-      tone: TONES[tone] === undefined ? 'label' : tone,
+      tone,
       onClick,
       enabled: true,
       hovered: false,
@@ -367,31 +443,45 @@ const TONES = { label: ON, go: GO, stop: STOP };
       return handle;
     };
 
+    handle.setTone = (next) => {
+      handle.tone = next;
+      handle.repaint();
+      return handle;
+    };
+
+    handle.setEnabled = (value) => {
+      handle.enabled = value;
+      handle.repaint();
+      return handle;
+    };
+
     function layout() {
       handle.width = textCols(handle.label, handle.scale, undefined, undefined, font) + 4;
       handle.height = getFont(font).rows * handle.scale + 4;
-      render();
     }
 
-    function render() {
-      // A button is a sign: board-coloured inside, a toned frame at rest, and the
-      // interior plus the label swap the moment you touch it - the inside fills
-      // with lit flaps and the label knocks out as dark holes in them. The frame
-      // keeps its own colour while hovered on purpose: that border is how you know
-      // what the control does, and it should not disappear under your cursor.
-      // A disabled button keeps its shape and label, just dimmed - a bare outline
-      // reads as a rendering bug rather than as "not available yet".
+    /**
+     * Draw this button's plate and label. Called from `redraw` rather than on its
+     * own, because a plate is remembered on the board rather than baked into the
+     * cell buffer: one pass over the whole grid is what keeps the remembered
+     * plates and the pixels in agreement. Hovering therefore repaints the board.
+     */
+    function draw() {
       const active = handle.hovered || handle.pressed;
       const lit = active && handle.enabled;
-      const body = lit ? ON : OFF;
       const ink = !handle.enabled ? DIM : lit ? INV : ON;
+      // Resting: the dots are the tone's own colour, so the lettering and the
+      // hairline are one colour and the button reads as a single sign. Lit: the
+      // plate fills with the tone colour and the label is knocked out of it, which
+      // is what keeps the word legible through the inversion.
       plate({
         col: handle.col,
         row: handle.row,
         cols: handle.width,
         rows: handle.height,
-        body,
-        frame: handle.enabled ? TONES[handle.tone] : DIM,
+        fill: lit ? toneColour(handle.tone) : colours.plateBg,
+        tone: lit ? TONE_PLAIN : handle.tone,
+        ink: !lit && handle.enabled && handle.tone !== TONE_PLAIN ? toneColour(handle.tone) : null,
       });
       stampText(handle.label, handle.col + 2, handle.row + 2, {
         scale: handle.scale,
@@ -400,21 +490,9 @@ const TONES = { label: ON, go: GO, stop: STOP };
       });
     }
 
-    handle.setEnabled = (value) => {
-      handle.enabled = value;
-      render();
-      return handle;
-    };
-
-    /** Swap the border colour, e.g. a toggle that goes from stop to go. */
-    handle.setTone = (value) => {
-      handle.tone = TONES[value] === undefined ? 'label' : value;
-      render();
-      return handle;
-    };
-
-    /** Repaint this button's own rectangle, without touching the rest of the grid. */
-    handle.repaint = render;
+    handle.draw = draw;
+    /** Repaint the board. See `draw`. */
+    handle.repaint = () => redraw();
     handle.contains = (col, row) =>
       col >= handle.col &&
       col < handle.col + handle.width &&
@@ -440,13 +518,13 @@ const TONES = { label: ON, go: GO, stop: STOP };
    * the sign instead of dissolving into the board - which is what happened when
    * the track was bare cells lying on a lit field.
    */
-  function progress({ col, row, width, label, scale = 1, font, pct = 0 }) {
+  function progress({ col, row, width, label, scale = 1, font, tone = TONE_PLAIN, pct = 0 }) {
     const captionRows = label === undefined ? 0 : getFont(font).rows * scale;
     const barRow = row + (captionRows ? captionRows + 3 : 2);
     const total = Math.max(3, width);
     // One row of air under the bar, so it reads as a bar inside the frame rather
     // than as a thick bottom border.
-    plate({ col, row, cols: total, rows: barRow + 3 - row });
+    plate({ col, row, cols: total, rows: barRow + 3 - row, tone });
     if (captionRows) stampText(label, col + 2, row + 2, { scale, font });
     const barCols = total - 4;
     const filled = Math.round(Math.max(0, Math.min(1, pct)) * barCols);
@@ -474,7 +552,16 @@ const TONES = { label: ON, go: GO, stop: STOP };
   function redraw() {
     cells.fill(OFF);
     guard.fill(0);
+    // Keyed plates outlive a redraw - the banner owns one and re-plates it on its
+    // own tick - while everything else is rebuilt by the painters below.
+    const persistent = panels.filter((record) => record.key !== null);
+    panels.length = 0;
+    panels.push(...persistent);
     for (const painter of painters) painter(board);
+    // Buttons draw after the painters: a plate is remembered, and the remembered
+    // plates have to be in the same order as the pixels, so they are all rebuilt
+    // in one pass rather than patched in place.
+    for (const handle of buttons) handle.draw();
     repaintAll();
   }
 

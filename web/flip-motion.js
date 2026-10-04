@@ -9,7 +9,7 @@
  */
 
 import { playRowFlip } from './flip-sound.js';
-import { layoutFlipCells, textCols } from './font5x7.js';
+import { layoutFlipCells } from './font5x7.js';
 
 /** Times for the full-board wipe, in milliseconds. */
 const WAVE_MS = 1500;
@@ -188,57 +188,57 @@ export function startIdleFlips(board, { minGapMs = 1400, maxGapMs = 3400 } = {})
 }
 
 /**
- * A sign whose caption scrolls: text travelling right to left across a plate.
+ * A plate whose caption scrolls: text travelling right to left across a sign.
  *
  * This is the one piece of motion the design brief ruled out - "no scrolling
  * marquee" - and it is here because it was asked for by name once the plates
- * existed. It earns its place the way a departure board does: a line of dots that
- * is wider than its sign has to either scroll or truncate, and scrolling keeps
- * the whole sentence readable instead of its first few words.
+ * existed. It earns its place the way a departure board does: a line of dots
+ * wider than its sign has to either scroll or truncate, and scrolling keeps the
+ * whole sentence readable instead of its first few words.
  *
- * How it stays cheap: the caption is laid out once into a plain array of lit
- * cells, then repeated sideways until the strip is wider than the sign plus a
- * gap. Because the strip is periodic, scrolling is just an offset into it, so
- * the text wraps seamlessly with no special case at the seam, and each tick only
- * repaints the sign's interior.
+ * How it stays cheap, and why it never shows a seam:
+ *   - the caption is laid out once into a plain array of lit cells, left-aligned
+ *     in its own space, and never measured again;
+ *   - scrolling is an offset into that array, not a re-layout, so a tick is one
+ *     comparison per lit cell;
+ *   - each cell is offered at two horizontal positions, one repeat apart, and
+ *     whichever lands inside the sign is drawn. That is what makes the text
+ *     continuous: the strip is treated as periodic, so the moment the offset
+ *     passes the end of the caption the next repeat is already in place and
+ *     there is nothing to reset to;
+ *   - `gap` columns of air separate one repeat from the next, because the two are
+ *     the same sentence and without a gap they read as one run-on word.
  *
  * Dots move one column per `stepMs` on a timer rather than on a frame callback:
  * at one column a tick there is nothing to interpolate, and a timer cannot spin
- * the CPU on a machine with nothing else to do.
+ * a CPU on a machine with nothing else to do.
  *
  * Honours `prefersReducedMotion` by drawing the first screenful and stopping.
  * Returns a stop function.
  */
 export function startMarquee(
   board,
-  { col, row, cols, text, scale = 1, font, stepMs = 45, gap = 16, sound = false } = {},
+  { col, row, cols, text, scale = 1, font, stepMs = 45, gap = 14, sound = false } = {},
 ) {
-  const one = layoutCells(text, scale, font);
-  if (one.width === 0) return () => {};
+  const one = layoutCells(text, scale, font, gap);
+  const visible = cols - 4;
+  if (one.width === 0 || visible <= 0) return () => {};
 
-  // Repeat until the strip is longer than the sign, so every window of it is
-  // valid and the wrap has no visible join.
-  const copies = Math.max(1, Math.ceil((cols + gap) / one.width));
-  const strip = [];
-  for (let copy = 0; copy < copies; copy += 1) {
-    for (const cell of one.cells) strip.push({ x: cell.x + copy * one.width, y: cell.y });
-  }
-  const span = copies * one.width;
-  const interior = {
-    col: col + 2,
-    row: row + 2,
-    cols: cols - 4,
-    rows: one.height,
-  };
+  const interior = { col: col + 2, row: row + 2, cols: visible, rows: one.height };
+  // A whole number of repeats, so offset and offset + span look identical and the
+  // wrap is invisible.
+  const span = one.width * Math.max(1, Math.ceil(visible / one.width));
 
   function draw(offset) {
-    board.plate({ col, row, cols, rows: one.height + 4 });
+    board.plate({ col, row, cols, rows: one.height + 4, key: 'marquee' });
     board.fill(interior.col, interior.row, interior.cols, interior.rows, 0);
     const start = ((offset % span) + span) % span;
-    for (const cell of strip) {
-      const x = cell.x - start;
-      if (x < 0 || x >= interior.cols) continue;
-      board.cell(interior.col + x, interior.row + cell.y, 1);
+    for (const cell of one.cells) {
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        const x = cell.x + repeat * one.width - start;
+        if (x < 0 || x >= interior.cols) continue;
+        board.cell(interior.col + x, interior.row + cell.y, 1);
+      }
     }
   }
 
@@ -266,10 +266,10 @@ export function startMarquee(
 
 /**
  * Lay a caption out once, in its own coordinate space, and report how big it is.
- * `layoutFlipCells` centres on a column and returns coordinates that depend on
- * that centre; the marquee wants a plain left-aligned bitmap.
+ * `layoutFlipCells` centres on a column and returns coordinates relative to that
+ * centre; the marquee wants a plain left-aligned bitmap starting at the origin.
  */
-function layoutCells(text, scale, font) {
+function layoutCells(text, scale, font, gap) {
   const cells = layoutFlipCells(text, scale, { font }).cells;
   if (cells.length === 0) return { cells: [], width: 0, height: 0 };
   let minX = Infinity;
@@ -282,11 +282,11 @@ function layoutCells(text, scale, font) {
     if (cell.x > maxX) maxX = cell.x;
     if (cell.y > maxY) maxY = cell.y;
   }
-  const width = maxX - minX + 1;
   return {
     cells: cells.map((cell) => ({ x: cell.x - minX, y: cell.y - minY })),
-    // A trailing blank column keeps the last letter from touching the repeat.
-    width: Math.max(width, textCols(text, scale) + 2),
+    // The gap after the caption, in dots. Generous on purpose: the repeats are the
+    // same sentence, so a small gap reads as a typo rather than as a pause.
+    width: maxX - minX + 1 + gap,
     height: maxY - minY + 1,
   };
 }

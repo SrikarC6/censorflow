@@ -22,6 +22,7 @@ FLIPDISC_FILE = config.WEB_DIR / "flipdisc.js"
 MOTION_FILE = config.WEB_DIR / "flip-motion.js"
 SOUND_FILE = config.WEB_DIR / "flip-sound.js"
 STYLE_FILE = config.WEB_DIR / "style.css"
+FONT_TEST = config.WEB_DIR / "font-test.html"
 
 # Every character AGENTS.md requires of the dot-matrix font.
 REQUIRED = (
@@ -275,7 +276,7 @@ def test_every_cell_is_painted_as_a_disc_and_never_as_a_square() -> None:
         "paint() derives the fill colour from the cell state; a lit cell must be "
         "erased to the background and then drawn as a disc"
     )
-    assert "drawDisc(ctx, cx, cy, radius, colours.on)" in block, (
+    assert "drawDisc(ctx, cx, cy, radius, ink)" in block, (
         "a lit cell must be a disc"
     )
 
@@ -285,11 +286,11 @@ def test_an_inverted_cell_is_a_hole_wider_than_the_flap_it_covers() -> None:
     # inverted disc were the same size as the lit one underneath, antialiasing
     # would leave an amber rim and the label would read as a smudge.
     text = FLIPDISC_FILE.read_text(encoding="utf-8")
-    block = text.split("if (state === INV)", 1)[1].split("drawDisc(ctx, cx, cy, radius, colours.on)", 1)[0]
+    block = text.split("if (state === INV)", 1)[1].split("const ink =", 1)[0]
     assert "radius * INV_OVERDRAW" in block, (
         "an inverted cell must overdraw the flap beneath it"
     )
-    assert "const INV_OVERDRAW = 1.08;" in text
+    assert "const INV_OVERDRAW = 1.16;" in text
 
 
 def test_the_lit_cells_of_a_tile_are_discs_too() -> None:
@@ -300,67 +301,144 @@ def test_the_lit_cells_of_a_tile_are_discs_too() -> None:
     assert "ctx.fillStyle = colours.on;\n      ctx.fillRect" not in block, (
         "renderField fills a lit cell with the lit colour, which paints a square"
     )
-    assert "drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.on)" in block
+    assert (
+        "drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, ink ?? colours.on)" in block
+    ), "a lit cell in a tile must be a disc"
 
 
-def test_the_sound_and_the_idle_flips_are_wired_up_but_the_wipe_is_not() -> None:
-    # Sound was asked for back: the page clicks on every press. The wipe was
-    # explicitly dropped - the board is bare, so a full-field wipe has nothing to
-    # wipe - which is why fullWipe is never called even though it still exists.
+def test_sound_is_wired_up_and_the_wipe_and_the_idle_flips_are_gone() -> None:
+    # Sound was asked for back: every press clicks. The wipe and the idle flips
+    # were both dropped - the board is bare, so a full-field wipe has nothing to
+    # wipe and a lone flipping disc has nothing to flip - which is why neither is
+    # called even though `fullWipe` and `startIdleFlips` still exist in the module.
     page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
     assert "from './flip-sound.js'" in page
     assert "playRowFlip(" in page
-    assert "from './flip-motion.js'" in page
-    assert "startIdleFlips(" in page
-    assert "fullWipe" not in page, "the wipe is meant to be gone from this page"
-    assert "prefersReducedMotion()" in page, "reduced motion must win over the toggle"
     assert "subscribeSound(" in page
+    assert "from './flip-motion.js'" in page
+    assert "fullWipe" not in page, "the wipe is meant to be gone from this page"
+    assert "startIdleFlips" not in page, "idle flips are meant to be gone too"
+    assert "animate" not in page.lower().replace("animation", ""), (
+        "no animation toggle is meant to be left on the page"
+    )
 
 
-def test_a_button_border_says_what_the_control_does() -> None:
-    # Two extra cell states rather than a parallel colour channel, because `plate`
-    # and `stroke` take a state and one more state is cheaper than threading a
-    # colour through every call. A control that acts gets a green frame, one that
-    # stops or is unavailable gets red, and a caption keeps the plain amber one.
+def test_a_sound_toggle_is_clickable_in_both_states() -> None:
+    # Regression. The toggle greyed its own label out when sound was off, and a
+    # greyed button is a disabled button: the hit test skips it. So the one control
+    # you need in order to switch the sound on was the one control you could not
+    # press. State now goes in the border colour instead.
     text = FLIPDISC_FILE.read_text(encoding="utf-8")
-    assert "export const GO = 4;" in text
-    assert "export const STOP = 5;" in text
-    assert "const TONES = { label: ON, go: GO, stop: STOP };" in text
-    assert "pick('--on-go'" in text and "pick('--on-stop'" in text
+    assert "handle.enabled !== false && handle.contains(col, row)" in text, (
+        "hit testing still skips disabled buttons, so a toggle must never be disabled"
+    )
+    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
+    assert "soundBtn.setEnabled" not in page, (
+        "the sound toggle must not be disabled to show its state"
+    )
+    assert "soundBtn.setTone(on ? 'go' : 'stop')" in page
+
+
+def test_a_plate_border_is_a_hairline_and_not_a_row_of_dots() -> None:
+    # The dot frame read as a beaded edge rather than as the side of a panel. The
+    # border is drawn, one CSS pixel, per cell edge - the same box as the `.chip`
+    # outline in the stylesheet.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    assert "const PLATE_LINE = 1;" in text
+    assert "function drawPanelEdges(panel, col, row, x, y)" in text
+    block = text.split("function drawPanelEdges", 1)[1].split("function toneColour", 1)[0]
+    assert "ctx.fillStyle = panel.border;" in block
+    for edge in ("col === panel.col", "col === panel.col + panel.cols - 1",
+                 "row === panel.row", "row === panel.row + panel.rows - 1"):
+        assert edge in block, f"the plate is missing its {edge} edge"
+    assert "stroke(col, row" not in text.split("function plate(", 1)[1].split("panels", 1)[0], (
+        "plate must not draw its border out of cells any more"
+    )
+
+
+def test_a_plate_border_colour_comes_from_the_same_variables_as_the_chips() -> None:
     style = STYLE_FILE.read_text(encoding="utf-8")
-    assert "--on-go:" in style and "--on-stop:" in style
-    # The frame keeps its tone while hovered: the interior and the label do the
-    # inverting, and a border that vanished under the cursor would be useless.
-    block = text.split("function render()", 1)[1].split("handle.setEnabled", 1)[0]
-    assert "frame: handle.enabled ? TONES[handle.tone] : DIM," in block
-    assert "const body = lit ? ON : OFF;" in block
-    assert "lit ? INV : ON" in block
+    for name in ("--plate-bg", "--plate-line", "--go", "--stop"):
+        assert f"{name}:" in style, f"the stylesheet does not define {name}"
+    assert ".fonttest .chip.go" in style and ".fonttest .chip.stop" in style, (
+        "the HTML specimens must show the two semantic plates"
+    )
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    for name in ("--plate-bg", "--plate-line", "--go", "--stop"):
+        assert f"'{name}'" in text, f"flipdisc.js does not read {name}"
+    assert "TONE_GO" in text and "TONE_STOP" in text and "TONE_PLAIN" in text
+    assert "export const TONE_GO" in text
 
 
-def test_the_banner_scrolls_and_the_board_owns_no_marquee() -> None:
-    # The one animation the brief rules out, added on request. It lives in
-    # flip-motion.js so flipdisc.js keeps its no-rAF guarantee, and the page never
-    # calls the wipe.
+def test_the_knockout_is_the_plate_colour_not_whatever_the_plate_is_lit_with() -> None:
+    # Regression. The inverted cell was drawn in `panel.fill`, which for a hovered
+    # button is the tone it lit up in - green dots on a green plate, so the label
+    # vanished exactly when you were pressing it.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    block = text.split("if (state === INV)", 1)[1].split("const ink =", 1)[0]
+    assert "colours.plateBg" in block
+    assert "panel.fill" not in block
+
+
+def test_a_toned_sign_letters_itself_in_its_own_colour() -> None:
+    # A green frame around amber dots reads as two objects bolted together; a
+    # green frame around green dots reads as one sign. The plate owns the ink
+    # colour, so a toned button and an HTML chip can agree.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    assert "ink = null" in text.split("function plate(", 1)[1].split("const record", 1)[0]
+    assert "panel.ink ? panel.ink : colours.on" in text
+    draw = text.split("function draw()", 1)[1].split("stampText(handle.label", 1)[0]
+    assert "ink: !lit && handle.enabled && handle.tone !== TONE_PLAIN" in draw
+    assert "toneColour(handle.tone) : null" in draw
+    # Lit, the plate fills and the label is knocked out, so the ink is dropped again.
+    assert "tone: lit ? TONE_PLAIN : handle.tone" in draw
+    # A tinted disc skips the specular highlight, which belongs to amber flaps.
+    assert "if (ink === colours.on) drawHighlight" in text
+    # renderField takes the same option so an HTML chip can be lettered too.
+    assert "paintField = true, ink = null" in text
+    page = FONT_TEST.read_text(encoding="utf-8")
+    assert "ink: tone ? board.colours[tone] : null" in page
+    style = STYLE_FILE.read_text(encoding="utf-8")
+    assert "outline-color: var(--go);\n  color: var(--go);" in style
+    assert "outline-color: var(--stop);\n  color: var(--stop);" in style
+
+
+def test_the_banner_scrolls_the_whole_caption_with_no_seam() -> None:
+    # Regression. The strip was one caption long, so once the offset passed the end
+    # of the text the right-hand side of the sign went blank and the caption jumped
+    # back to the left. Each cell is now offered at two positions, one repeat
+    # apart, so the strip is periodic and the wrap cannot be seen.
     motion = MOTION_FILE.read_text(encoding="utf-8")
     assert "export function startMarquee(" in motion
-    assert "prefersReducedMotion()" in motion, "the banner must honour reduced motion"
-    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
-    assert "startMarquee(board, {" in page
-    assert "const BANNER_TEXT =" in page
-    assert "'CENSORFLOW - THE PREMIERE MUSIC FILE CENSORER AND STEM SEPARATION APPLICATION'" in page
-    # The strip is repeated sideways, which is what makes the wrap seamless.
-    assert "for (let copy = 0; copy < copies; copy += 1)" in motion
-
-
-def test_no_dot_text_sits_on_the_bare_board() -> None:
-    # Every scrap of dot text is on a plate. A bare stampText on the board is
-    # exactly the noise the plates were introduced to remove.
-    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
-    painter = page.split("board.onDraw(", 1)[1].split("});", 1)[0]
-    assert "stampText(" not in painter, (
-        "the control strip still stamps bare text onto the board; put it on a plate"
+    assert "for (let repeat = 0; repeat < 2; repeat += 1)" in motion
+    assert "Math.ceil(visible / one.width)" in motion
+    assert "key: 'marquee'" in motion, (
+        "the banner re-plates on every tick; without a key it would append a panel "
+        "per tick and the board's panel list would grow without bound"
     )
-    assert "BOARD CONTROLS" not in page
+    assert "prefersReducedMotion()" in motion.split("export function startMarquee", 1)[1]
+    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
+    assert "startMarquee(" in page
+    assert "THE PREMIERE MUSIC FILE CENSORER" in page
+
+
+def test_running_prose_is_allowed_to_grow_but_tiles_may_not() -> None:
+    # Regression. Notes had a fixed whole-dot height so the tiles below them stayed
+    # on the grid, which silently clipped any paragraph longer than a few lines -
+    # and the board's own text then printed straight through the gap.
+    style = STYLE_FILE.read_text(encoding="utf-8")
+    note = style.split(".fonttest .note {", 1)[1].split("}", 1)[0]
+    assert "min-height" in note
+    # `line-height` would satisfy a naive search for "height:", so match the
+    # property on its own.
+    assert not [line for line in note.splitlines() if line.strip().startswith("height:")]
+    assert "overflow: hidden" not in note
+    tiles = style.split(".fonttest .tiles {", 1)[1].split("}", 1)[0]
+    caps = style.split(".fonttest .caps {", 1)[1].split("}", 1)[0]
+    assert "height: calc(var(--pad, 4px) * 3)" in caps, (
+        "the caption row is whole-dot sized on purpose and must stay that way"
+    )
+    assert "padding: var(--pad, 4px)" in tiles
 
 
 def test_tiles_keep_the_field_that_the_board_dropped() -> None:

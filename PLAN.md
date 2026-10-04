@@ -44,12 +44,17 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
 ## Phase 4 - web UI
 
-- [x] 4a: `flipdisc.js`, `font5x7.js`, `flip-motion.js`, `flip-sound.js`, `web/style.css`, `web/font-test.html` (signs on plates, no board field; tiles keep their field; scrolling banner; toned button frames)
+- [x] 4a: `flipdisc.js`, `font5x7.js`, `flip-motion.js`, `flip-sound.js`, `web/style.css`, `web/font-test.html`
   - serif 7x9 default set, denser dots, single dot layer, animation + flip sounds behind toggles
   - sans is the default again (serif opt-in behind FONT: SERIF); buttons verified clickable
   - **the look: the board paints no dot field at all; dots are ink, and every label and button
-    sits on a floating plate, so the display reads as physical signs. Wipes, idle flips and flip
-    sounds removed from the page.** Awaiting the user's eyeball check.
+    sits on a floating plate, so the display reads as physical signs. Wipes and idle flips
+    removed from the page, flip sounds kept behind a SOUND toggle. Plates take a 1px hairline
+    border like the HTML chips, green/red semantic borders with the lettering in the same
+    colour, and a hover inverts the plate while knocking the label out of it. The banner
+    scrolls the whole caption continuously with a wide gap between repeats.** Specimen tiles
+    keep their unlit field, because a glyph is only legible against the full matrix.
+    Awaiting the user's eyeball check.
 - [ ] 4b: Welcome, Mode, Processing, Result
 - [ ] 4c: Review screen
 - [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`
