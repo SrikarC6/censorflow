@@ -234,6 +234,32 @@ def test_the_board_reads_its_colours_from_css_variables() -> None:
     assert "getComputedStyle(document.documentElement)" in text
 
 
+def test_the_board_paints_no_background_field() -> None:
+    # Regression, and a deliberate design decision: an always-on grid of unlit
+    # discs is noise behind every label. The eye reads the field instead of the
+    # text. Dots are ink, drawn only where something is actually written, so a
+    # plate is what a label stands on.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    unlit = text.split("if (state === OFF)", 1)[1].split("drawDisc", 1)
+    assert len(unlit) == 2, (
+        "the OFF branch of paint() still draws an unlit disc, so the board "
+        "paints a permanent field of dots behind the labels"
+    )
+
+
+def test_a_plate_is_the_only_container() -> None:
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    assert "function plate(" in text, "there is no plate primitive"
+    assert "plate," in text, "plate is not exposed on the board object"
+    for name in ("button", "progress"):
+        assert f"{name}(" in text
+    # The two shapes that used to hand-roll their own fill/stroke/guard loop now
+    # go through plate, so a sign looks like a sign wherever it is drawn.
+    assert text.count("plate({") >= 3, (
+        "button and progress should both build on plate, not repeat it"
+    )
+
+
 def test_the_board_has_no_animation_loop() -> None:
     # The board itself stays instant. Motion lives in flip-motion.js, which only
     # the opt-in demo page uses, so a redraw is never gated on a frame callback.

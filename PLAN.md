@@ -47,7 +47,9 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 - [x] 4a: `flipdisc.js`, `font5x7.js`, `flip-motion.js`, `flip-sound.js`, `web/style.css`, `web/font-test.html`
   - serif 7x9 default set, denser dots, single dot layer, animation + flip sounds behind toggles
   - sans is the default again (serif opt-in behind FONT: SERIF); buttons verified clickable
-  - **awaiting the user's eyeball check**
+  - **the look: the board paints no dot field at all; dots are ink, and every label and button
+    sits on a floating plate, so the display reads as physical signs. Wipes, idle flips and flip
+    sounds removed from the page.** Awaiting the user's eyeball check.
 - [ ] 4b: Welcome, Mode, Processing, Result
 - [ ] 4c: Review screen
 - [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`

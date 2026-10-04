@@ -7,9 +7,10 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- The one and only dot field. Everything drawn below is lit dots on top of
-         this board, which is why the page scrolls: content is HTML over a fixed
-         canvas rather than a canvas that scrolls with it. -->
+    <!-- The board. It paints no background dots of its own any more: it is the
+         ground, not a texture. Everything visible is lit ink on a sign. The page
+         still scrolls, because content is HTML over a fixed canvas rather than a
+         canvas that scrolls with it. -->
     <canvas id="board" aria-hidden="true"></canvas>
 
     <main class="fonttest">
@@ -21,16 +22,16 @@
         A and W were hard to read. Press <b>FONT: SERIF</b> to compare them. Gaps
         are 1 dot between letters and 2 between words. Uppercase-only:
         <code>glyphFor()</code> uppercases its input, so lowercase renders as
-        uppercase.
+        uppercase. The board itself is bare black — dots are ink, never a
+        backdrop.
       </p>
 
-      <h1>Board controls — hover, press, and use the toggles</h1>
+      <h1>Board controls — hover and press</h1>
       <p class="note" id="controls-note">
         Drawn on the real board at grid coordinates with hit-testing in grid space.
-        ANIMATE turns on the occasional background flip; WIPE runs the full
-        board-wide dance; SOUND is off until you press it, because browsers only
-        allow audio after a click. Everything here respects
-        <code>prefers-reduced-motion</code>.
+        A button is a sign: board-coloured inside, an amber frame at rest, and the
+        whole thing swaps light and dark the moment you point at it or press it.
+        OFF is disabled, so it keeps its shape and dims instead of vanishing.
       </p>
       <p class="note" id="demo-readout">no presses yet</p>
 
@@ -50,16 +51,17 @@
       <div class="tiles" id="all"></div>
       <div class="caps" id="all-caps"></div>
 
-      <h1>Samples at title size — scale 4 / 3 / 2 / 1</h1>
+      <h1>Samples on floating plates — scale 4 / 3 / 2 / 1</h1>
+      <p class="note">
+        Every specimen below sits on an opaque plate sized to the text with a dot
+        of margin. The board behind is deliberately bare: an always-on grid of
+        unlit dots was noise behind every label, so now the dots are only ever ink
+        and a plate is what a label stands on. The outline does not affect layout,
+        which is why the dots inside still land on the grid.
+      </p>
       <div class="plates" id="samples-big"></div>
 
-      <h1>Small text on floating plates — scale 2 / 1</h1>
-      <p class="note">
-        Each of these sits on an opaque plate sized to the text with a dot of
-        margin, so the small glyphs have quiet ground and the rectangle reads as
-        floating over the field. The outline does not affect layout, which is why
-        the dots inside still land on the grid.
-      </p>
+      <h1>Small text on the same plates — scale 2 / 1</h1>
       <div class="plates" id="samples-small"></div>
 
       <h1>Long lines at scale 1, as the review screen will use them</h1>
@@ -80,29 +82,23 @@
         textCols,
         FONTS,
       } from './font5x7.js';
-      import { fullWipe, startIdleFlips, prefersReducedMotion } from './flip-motion.js';
-      import { isSoundEnabled, setSoundEnabled, subscribeSound, playRowFlip } from './flip-sound.js';
 
       const pitch = pitchFromLocation();
       const board = createBoard(document.getElementById('board'), { pitch });
 
       // One dot of padding everywhere. Because every box on this page is a whole
       // number of dots tall and wide, each tile's canvas origin lands on a board
-      // dot and the lit dots read as part of the one field rather than as a
-      // second layer laid over it.
+      // dot. The board itself is bare, so a tile only has to carry its own ink.
       document.documentElement.style.setProperty('--pad', `${pitch}px`);
 
       /* --- the control strip, painted on the board ---------------------------- */
 
-      // A scale-1 serif button is 9 glyph rows + 4 = 13 rows tall; a progress
-      // label is 9 rows with its bar one row below. The rows need real air.
-      const ROW = { title: 0, controls: 13, controls2: 29, progress: 45, reserved: 57 };
+      // A scale-1 button is 7 glyph rows + 4 = 11 rows tall; a progress sign is 7
+      // caption rows, 3 of air, the bar and 2 of foot. The rows need real air.
+      const ROW = { title: 0, controls: 13, progress: 29, reserved: 45 };
 
       const readout = document.getElementById('demo-readout');
       let barPct = 0.62;
-      let animate = false;
-      let stopIdle = null;
-      let wipe = null;
 
       const pressMe = board.button({
         col: 2,
@@ -110,7 +106,6 @@
         label: 'PRESS',
         onClick: (btn) => {
           readout.textContent = `pressed ${btn.label}`;
-          playRowFlip(4, false);
         },
       });
 
@@ -134,53 +129,6 @@
         },
       });
       dead.setEnabled(false);
-
-      const animBtn = board.button({
-        col: 2,
-        row: ROW.controls,
-        label: 'ANIMATE',
-        onClick: (btn) => {
-          animate = !animate;
-          btn.setEnabled(animate);
-          if (animate) {
-            stopIdle = startIdleFlips(board);
-            readout.textContent = 'animation on: a dot flips over now and then';
-          } else {
-            stopIdle?.();
-            stopIdle = null;
-            board.redraw();
-            readout.textContent = 'animation off';
-          }
-        },
-      });
-      animBtn.setEnabled(false);
-
-      const soundBtn = board.button({
-        col: 2,
-        row: ROW.controls,
-        label: 'SOUND',
-        onClick: () => {
-          const next = !isSoundEnabled();
-          setSoundEnabled(next);
-          readout.textContent = next ? 'sound on' : 'sound off';
-          board.redraw();
-        },
-      });
-
-      const wipeBtn = board.button({
-        col: 2,
-        row: ROW.controls,
-        label: 'WIPE',
-        onClick: () => {
-          if (prefersReducedMotion()) {
-            readout.textContent = 'reduced motion is on, so the wipe is skipped';
-            return;
-          }
-          wipe?.();
-          wipe = fullWipe(board);
-          readout.textContent = 'wipe';
-        },
-      });
 
       const fontBtn = board.button({
         col: 2,
@@ -208,8 +156,7 @@
 
       board.onDraw((b) => {
         b.stampText('BOARD CONTROLS', 2, ROW.title, { scale: 1 });
-        placeRow([animBtn, soundBtn, wipeBtn, fontBtn], 2, ROW.controls);
-        placeRow([pressMe, bump, dead], 2, ROW.controls2);
+        placeRow([pressMe, bump, dead, fontBtn], 2, ROW.controls);
         b.progress({
           col: 2,
           row: ROW.progress,
@@ -219,15 +166,12 @@
         });
       });
 
-      // Sound state survives a reload; the button has to show it on arrival.
-      subscribeSound(() => {
-        soundBtn.setLabel(isSoundEnabled() ? 'SOUND: ON' : 'SOUND');
-        board.redraw();
-      });
-      soundBtn.setLabel(isSoundEnabled() ? 'SOUND: ON' : 'SOUND');
-
       document.documentElement.style.setProperty('--demo-reserve', `${ROW.reserved * pitch}px`);
       board.redraw();
+
+      // A hook for the headless click-through checks in tmp/e2e, which read the
+      // real button rects and hit-test them rather than guessing at pixels.
+      window.__board = board;
 
       /* --- the glyph tiles --------------------------------------------------- */
 
@@ -359,7 +303,7 @@
         tileRow('symbols-2', 'symbols-2-caps', asItems(SYMBOLS, 2));
         tileRow('all', 'all-caps', asItems(glyphKeys(), 2));
 
-        plates('samples-big', SAMPLES, [4, 3, 2, 1]);
+        plates('samples-big', SAMPLES, [4, 3, 2, 1], { chip: true });
         plates('samples-small', SAMPLES, [2, 1], { chip: true });
         plates('long', ['WORD 42  1.44  1.79  BOTH  VERIFY',
           'FLAGS 5 OF 527 WORDS  2.03 SECONDS MUTED'], [1], { chip: true });
@@ -374,13 +318,6 @@
         'beforeend',
         ` Currently showing <b>${fontName()}</b>, ${glyphSize().cols}x${glyphSize().rows}, pitch ${pitch} px. Sets available: ${Object.keys(FONTS).join(', ')}.`,
       );
-
-      // Animate only starts on request: the board is a status readout, and
-      // nothing should move until the person looking at it says so.
-      window.addEventListener('beforeunload', () => {
-        stopIdle?.();
-        wipe?.();
-      });
     </script>
   </body>
 </html>

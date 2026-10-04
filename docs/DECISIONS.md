@@ -369,3 +369,30 @@ any screen was built. Decisions that outlive the test page:
   executed `flipdisc.js`; both are now pinned by static assertions in `tests/test_web_font.py`,
   which is a weak substitute. A DOM stub plus Node is Phase 5 work, and it should happen before
   4b adds four screens of interaction.
+- **The board paints no background field.** `paint()`'s `OFF` branch used to fill a cell with
+  the background *and* draw an unlit disc, which meant the whole window was a grid of dots from
+  edge to edge. Measured against the `font-test.html` screenshots, that field is noise: the eye
+  reads the texture and not the words on it. It is gone, and the dots are now **ink only** -
+  drawn where something is actually written. `DIM` still draws a disc, because that is the ink
+  of a disabled label rather than a backdrop.
+- **`plate()` is the only container.** With no field, an unlit region is already the background
+  colour, so a sign is exactly `fill` plus a one-dot frame. That is `plate({ body, frame })`, and
+  both `button` and `progress` were reduced to calling it instead of hand-rolling the same
+  fill/stroke/guard loop. A plate is the design's single container: titles, samples, the review
+  transcript and every button are plates, which is what makes them read as physical signs.
+  `body` exists because a hovered button inverts its *interior* to `ON` and knocks the label out
+  to `INV` - hardcoding the interior to `OFF` (the first attempt) made the hovered button vanish
+  into a dark-on-dark rectangle.
+- **The progress bar now lives inside its frame**, which retires a question left open since 4a.
+  The track used to be bare cells lying on a lit field, so an unfilled bar was indistinguishable
+  from the background; there was no honest answer while the field existed. It is now a caption on
+  a sign with the bar one row above the bottom frame and a row of air between them, so filled and
+  unfilled are both plainly visible.
+- **No wipes, no idle flips, no flip sound.** All three existed to animate the field, and the
+  field is gone - with nothing but signs on a bare board there is not enough to wipe, and a
+  random flip would land on a sign. The `ANIMATE`, `WIPE` and `SOUND` buttons are off the demo
+  page and `font-test.html` no longer imports `flip-motion.js` or `flip-sound.js`.
+  **`flip-motion.js` and `flip-sound.js` are still on disk, imported by nothing.** They are a
+  design asset for the processing screen (a wipe has real material to work with once a stage
+  list is on the board), and deleting 350 lines of reviewed port would be the more expensive
+  mistake. Decide before 4b whether they are used or cut.

@@ -224,8 +224,8 @@ button.html:focus-visible {
 
 .fonttest canvas {
   display: block;
-  /* Transparent: the board behind is the only dot field on the page. A tile that
-   * painted its own background would cut a hole in it. */
+  /* Transparent: a tile only carries ink. Its ground comes from the chip it sits
+   * on, or from the bare board. */
   background: transparent;
 }
 
@@ -290,10 +290,13 @@ button.html:focus-visible {
 }
 
 /*
- * Small and intricate text sits on an opaque plate sized to the text with a dot
- * of margin, so the glyphs get quiet ground and the rectangle reads as floating
- * above the field. `outline` rather than `border` on purpose: an outline does
- * not take part in layout, so the dots inside the plate still land on the grid.
+ * The sign. Text sits on an opaque plate sized to the text plus a dot of margin,
+ * so the glyphs get quiet ground and the rectangle reads as a physical sign on
+ * the board. This is the one container the design uses - titles, samples, the
+ * review transcript and the dot-drawn buttons are all plates.
+ *
+ * `outline` rather than `border` on purpose: an outline does not take part in
+ * layout, so the dots inside the plate still land on the grid.
  */
 .fonttest .chip {
   display: inline-block;

@@ -175,9 +175,12 @@ export function createBoard(canvas, options = {}) {
     const x = col * pitch;
     const y = row * pitch;
     if (state === OFF) {
+      // The board is deliberately bare. An always-on grid of unlit discs is noise
+      // behind every label: the eye reads the field, not the text. Dots are ink,
+      // drawn only where something is actually written, which is what makes the
+      // plates read as physical signs sitting on an empty board.
       ctx.fillStyle = colours.bg;
       ctx.fillRect(x, y, pitch, pitch);
-      drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.off);
       return;
     }
     if (state === DIM) {
@@ -231,6 +234,27 @@ export function createBoard(canvas, options = {}) {
     for (let r = row; r < row + height; r += 1) {
       for (let c = col; c < col + width; c += 1) paint(c, r);
     }
+  }
+
+  /**
+* A sign: a flat panel with a one-dot frame.
+   *
+   * This is the only container the UI uses. Because the board no longer paints a
+   * field, an unlit region is already the background colour, so a plate is exactly
+   * `fill` plus a frame - which is what `button` and `progress` already do. It is
+   * spelled out as its own call so screens can put a caption on a sign without
+   * inventing a button. `body` is the interior: OFF (the board colour) at rest,
+   * ON when a button is hovered or pressed and swaps to its inverted label.
+   */
+  function plate({ col, row, cols: width, rows: height, body = OFF, frame = ON } = {}) {
+    fill(col, row, width, height, body);
+    stroke(col, row, width, height, frame);
+    for (let r = row; r < row + height; r += 1) {
+      for (let c = col; c < col + width; c += 1) {
+        if (inside(c, r)) guard[index(c, r)] = 1;
+      }
+    }
+    return { col, row, cols: width, rows: height };
   }
 
   /**
@@ -296,19 +320,22 @@ export function createBoard(canvas, options = {}) {
     }
 
     function render() {
-      // A disabled button keeps its shape and label, just dimmed: OFF-on-OFF
-      // would make it vanish into the field, which reads as a rendering bug
-      // rather than as "not available yet".
+      // A button is a sign: board-coloured inside, an amber frame at rest, and the
+      // whole thing swaps light and dark the moment you touch it. A disabled
+      // button keeps its shape and label, just dimmed - a bare outline reads as
+      // a rendering bug rather than as "not available yet".
       const active = handle.hovered || handle.pressed;
-      const body = active && handle.enabled ? ON : OFF;
-      const ink = !handle.enabled ? DIM : active ? INV : ON;
-      fill(handle.col, handle.row, handle.width, handle.height, body);
-      stroke(handle.col, handle.row, handle.width, handle.height, ink);
-      for (let r = handle.row; r < handle.row + handle.height; r += 1) {
-        for (let c = handle.col; c < handle.col + handle.width; c += 1) {
-          if (inside(c, r)) guard[index(c, r)] = 1;
-        }
-      }
+      const lit = active && handle.enabled;
+      const body = lit ? ON : OFF;
+      const ink = !handle.enabled ? DIM : lit ? INV : ON;
+      plate({
+        col: handle.col,
+        row: handle.row,
+        cols: handle.width,
+        rows: handle.height,
+        body,
+        frame: ink,
+      });
       stampText(handle.label, handle.col + 2, handle.row + 2, {
         scale: handle.scale,
         state: ink,
@@ -342,18 +369,25 @@ export function createBoard(canvas, options = {}) {
     return null;
   }
 
-  /** A bar of `width` cells filled to `pct`, with an optional dot-matrix label above it. */
+  /**
+   * A caption on a sign, with a bar underneath showing `pct`.
+   *
+   * The bar sits inside the frame, so the unfilled part still reads as part of
+   * the sign instead of dissolving into the board - which is what happened when
+   * the track was bare cells lying on a lit field.
+   */
   function progress({ col, row, width, label, scale = 1, font, pct = 0 }) {
-    if (label !== undefined) {
-      const block = stampText(label, col, row, { scale, font });
-      row += block.rows + 1;
-    }
-    const filled = Math.round(Math.max(0, Math.min(1, pct)) * width);
-    for (let i = 0; i < width; i += 1) {
-      set(col + i, row, i < filled ? ON : OFF);
-      if (inside(col + i, row)) guard[index(col + i, row)] = 1;
-    }
-    return { x: col, y: row, cols: width, rows: 1 };
+    const captionRows = label === undefined ? 0 : getFont(font).rows * scale;
+    const barRow = row + (captionRows ? captionRows + 3 : 2);
+    const total = Math.max(3, width);
+    // One row of air under the bar, so it reads as a bar inside the frame rather
+    // than as a thick bottom border.
+    plate({ col, row, cols: total, rows: barRow + 3 - row });
+    if (captionRows) stampText(label, col + 2, row + 2, { scale, font });
+    const barCols = total - 4;
+    const filled = Math.round(Math.max(0, Math.min(1, pct)) * barCols);
+    for (let i = 0; i < filled; i += 1) set(col + 2 + i, barRow, ON);
+    return { col, row, cols: total, rows: barRow + 3 - row };
   }
 
   function resize() {
@@ -400,6 +434,7 @@ export function createBoard(canvas, options = {}) {
     paint,
     fill,
     stroke,
+    plate,
     stampText,
     button,
     progress,
