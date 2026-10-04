@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CensorFlow — 5x7 font</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- The background board: real geometry, real CSS colours, so what you judge
+         here is what the app will draw. -->
+    <canvas id="board" aria-hidden="true"></canvas>
+
+    <main class="fonttest">
+      <h1>CensorFlow 5x7 flip-disc font</h1>
+      <p class="note">
+        Every glyph in <code>web/font5x7.js</code>, at scale 1 and scale 2.
+        Gaps are 1 dot between letters and 2 between words, counted in font
+        pixels so they scale with the glyph. The set is uppercase-only:
+        <code>glyphFor()</code> uppercases its input, so lowercase renders as
+        uppercase. Characters with no glyph fall back to <code>?</code> and are
+        flagged in red below.
+      </p>
+
+      <h1>Board controls — hover and press a button</h1>
+      <p class="note">
+        Drawn on the real board, at grid coordinates, with hit-testing in grid
+        space. Hover and press swap the two colours. The reserved strip is at
+        the very top of the board, so scroll to the top to reach it.
+      </p>
+      <div class="note" id="demo-readout">no presses yet</div>
+      <div class="row" id="scale1-letters"></div>
+
+      <h1>Letters and digits — scale 2</h1>
+      <div class="row" id="scale2-letters"></div>
+
+      <h1>Punctuation and symbols — scale 1 / scale 2</h1>
+      <div class="row" id="scale1-symbols"></div>
+      <div class="row" id="scale2-symbols" style="margin-top: 14px"></div>
+
+      <h1>All glyphs, in declaration order — scale 2</h1>
+      <div class="row" id="all"></div>
+
+      <h1>Samples at title size — scale 4 / 3 / 2 / 1</h1>
+      <div class="samples" id="samples"></div>
+
+      <h1>Samples at body size — scale 2 / 1</h1>
+      <div class="samples" id="samples-small"></div>
+
+      <h1>Long line at scale 1, as the review screen will use it</h1>
+      <div class="samples" id="long"></div>
+    </main>
+
+    <script type="module">
+      import { createBoard, renderField, pitchFromLocation } from './flipdisc.js';
+      import {
+        glyphKeys,
+        hasGlyph,
+        measureFlipText,
+        layoutFlipCells,
+        GLYPH_COLS,
+        GLYPH_ROWS,
+      } from './font5x7.js';
+
+      const pitch = pitchFromLocation();
+      const board = createBoard(document.getElementById('board'), { pitch });
+
+      // Reserved strip at the top of the board for the control demo. Drawn on the
+      // board rather than on a tile so it exercises the real hit-testing path.
+      // Buttons are created once and re-placed on every redraw: creating them
+      // inside the painter would leak one into the hit-test list per repaint.
+      // Row map for the reserved strip. A scale-1 button is 7 + 4 = 11 rows tall, and
+// a scale-1 progress label is 7 rows with its bar one row further down, so the
+// rows need more air between them than they look like they need.
+const ROW = { title: 0, buttons: 9, progress: 22, reserved: 32 };
+
+const readout = document.getElementById('demo-readout');
+      let barPct = 0.62;
+
+      const pressMe = board.button({ col: 2, row: ROW.buttons, label: 'PRESS', onClick: (btn) => {
+        readout.textContent = `pressed ${btn.label}`;
+      } });
+      const bump = board.button({ col: 2, row: ROW.buttons, label: 'BAR', onClick: () => {
+        barPct = barPct >= 0.999 ? 0 : Math.min(1, barPct + 0.19);
+        readout.textContent = `progress ${Math.round(barPct * 100)}%`;
+        board.redraw();
+      } });
+      const dead = board.button({ col: 2, row: ROW.buttons, label: 'OFF', onClick: () => {
+        readout.textContent = 'this button is disabled, so this cannot happen';
+      } });
+      dead.setEnabled(false);
+
+      // Laid out with a running cursor rather than hardcoded columns: a button is
+      // as wide as its label, so fixed columns overlap as soon as a label changes.
+      function placeRow(handles, col) {
+        let cursor = col;
+        for (const handle of handles) {
+          handle.place(cursor, ROW.buttons);
+          cursor += handle.width + 2;
+        }
+      }
+
+      board.onDraw((b) => {
+        b.stampText('BOARD CONTROLS', 2, ROW.title, { scale: 1 });
+        placeRow([pressMe, bump, dead], 2);
+        b.progress({ col: 2, row: ROW.progress, width: 90, label: `PROGRESS ${Math.round(barPct * 100)}%`, pct: barPct });
+      });
+      board.redraw();
+      document.documentElement.style.setProperty('--demo-reserve', `${ROW.reserved * pitch}px`);
+
+      /** One canvas showing `text` at `scale`, padded by one dot on every side. */
+      function tile(text, scale) {
+        const figure = document.createElement('figure');
+        const canvas = document.createElement('canvas');
+        const { cols, rows } = measureFlipText(text, scale);
+        const pad = 1;
+        const { cells } = layoutFlipCells(text, scale);
+        renderField(canvas, {
+          pitch,
+          cols: cols + pad * 2,
+          rows: rows + pad * 2,
+          lit: cells.map((cell) => [cell.x + pad, cell.y + pad]),
+        });
+        figure.append(canvas);
+        const caption = document.createElement('figcaption');
+        const label = text === ' ' ? '(space)' : text;
+        caption.textContent = label;
+        if (text !== ' ' && !hasGlyph(text)) caption.className = 'missing';
+        figure.append(caption);
+        return figure;
+      }
+
+      const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
+      const SYMBOLS = [
+        '!', '?', '(', ')', '<', '>', '_', '=', '/', '+', '-', '.', ',', ';', ':',
+        '@', '#', '$', '%', '&', 'x', '÷', '→', '←', '↑', '↓', '▶', '■', '•',
+        '·', '–', '—', '|', '\\', '[', ']', '{', '}', "'", '"', '*', '×', ' ',
+      ];
+
+      for (const [id, chars, scale] of [
+        ['scale1-letters', LETTERS, 1],
+        ['scale2-letters', LETTERS, 2],
+        ['scale1-symbols', SYMBOLS, 1],
+        ['scale2-symbols', SYMBOLS, 2],
+        ['all', glyphKeys(), 2],
+      ]) {
+        const host = document.getElementById(id);
+        for (const char of chars) host.append(tile(char, scale));
+      }
+
+      const SAMPLES = [
+        'CENSORFLOW',
+        'SEPARATING',
+        'TRANSCRIBING',
+        'FETCHING LYRICS',
+        'AWAITING REVIEW',
+        'RENDERING',
+        'DONE',
+        '5 FLAGS 2.0S',
+        '01 BROTHER STONE',
+        'ORIGINAL',
+        'CLEAN',
+        'A/B PLAYBACK',
+        'ERROR: FFMPEG NOT FOUND',
+        'WORDS 1/120',
+      ];
+
+      const sampleHost = document.getElementById('samples');
+      for (const scale of [4, 3, 2, 1]) {
+        for (const line of SAMPLES) {
+          const figure = tile(line, scale);
+          const caption = figure.querySelector('figcaption');
+          caption.textContent = `${line}  ·  scale ${scale}`;
+          sampleHost.append(figure);
+        }
+      }
+
+      const smallHost = document.getElementById('samples-small');
+      for (const scale of [2, 1]) {
+        for (const line of SAMPLES) {
+          const figure = tile(line, scale);
+          const caption = figure.querySelector('figcaption');
+          caption.textContent = `scale ${scale}`;
+          smallHost.append(figure);
+        }
+      }
+
+      const longHost = document.getElementById('long');
+      for (const line of [
+        'WORD 42  1.44  1.79  BOTH  VERIFY',
+        'FLAGS 5 OF 527 WORDS  2.03 SECONDS MUTED',
+      ]) {
+        longHost.append(tile(line, 1));
+      }
+
+      document.title = `CensorFlow — 5x7 font (${GLYPH_COLS}x${GLYPH_ROWS}, pitch ${pitch})`;
+    </script>
+  </body>
+</html>

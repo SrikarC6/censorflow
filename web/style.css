@@ -1,0 +1,221 @@
+/*
+ * CensorFlow UI.
+ *
+ * The dot grid is drawn on a canvas by flipdisc.js, which reads --on, --off,
+ * --bg and --on-hi from :root at startup. This file is the single source of
+ * truth for colour: change a value here and both the canvas and the HTML
+ * overlay follow.
+ */
+
+:root {
+  /* Transit-sign amber for a lit dot. */
+  --on: #ffb800;
+  /* Dim blue-grey for an unlit dot. Take this towards --bg for a fainter field. */
+  --off: #1c2030;
+  /* The board behind the dots. */
+  --bg: #05080d;
+  /* The specular highlight on a lit dot: what makes it read as a physical flap. */
+  --on-hi: rgba(255, 230, 140, 0.42);
+  /* A dimmed amber: disabled controls and stages that have not run yet. */
+  --on-dim: #6b5620;
+
+  --fg: var(--on);
+  --dim: #6b7385;
+  --line: #222836;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  /* The board is a fixed full-window canvas; the page itself never scrolls. */
+  overflow: hidden;
+}
+
+/*
+ * No animation anywhere. The board is a status readout, and a moving target is
+ * harder to read than a still one.
+ */
+*,
+*::before,
+*::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+#board {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  cursor: default;
+  touch-action: none;
+}
+
+/* --- HTML overlay ------------------------------------------------------------
+ * Dot-matrix is for titles, buttons, status, progress and stem labels. Anything
+ * dense - the transcript, the review table - is real HTML sitting over the
+ * canvas, so it can be read, selected and tabbed through.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.overlay > * {
+  pointer-events: auto;
+}
+
+.panel {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.muted {
+  color: var(--dim);
+}
+
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+table.grid th {
+  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+table.grid td {
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+button.html {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button.html:hover,
+button.html:focus-visible {
+  background: var(--on);
+  border-color: var(--on);
+  color: var(--bg);
+  outline: none;
+}
+
+/* Visible only to a screen reader: the canvas is one bitmap of dots. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--on);
+  outline-offset: 2px;
+}
+
+/* --- font-test.html only ------------------------------------------------------ */
+
+/* Transparent so the real fixed board shows through around the tiles. The top
+ * padding clears the control demo strip that font-test.html paints on the board;
+ * font-test.html sets --demo-reserve from its own row map. */
+.fonttest {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  z-index: 2;
+  background: transparent;
+  padding: calc(var(--demo-reserve, 190px) + 14px) 20px 60px;
+}
+
+.fonttest h1 {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 600;
+  margin: 26px 0 10px;
+}
+
+.fonttest .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.fonttest figure {
+  margin: 0;
+  text-align: center;
+}
+
+.fonttest figcaption {
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 5px;
+  letter-spacing: 0.08em;
+}
+
+.fonttest canvas {
+  display: block;
+  background: var(--bg);
+}
+
+.fonttest .samples canvas {
+  margin-bottom: 12px;
+}
+
+.fonttest .note {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.7;
+  max-width: 62ch;
+  letter-spacing: 0.04em;
+}
+
+.fonttest .missing {
+  color: #ff6b6b;
+}

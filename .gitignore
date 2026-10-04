@@ -231,7 +231,8 @@ out/
 .censorflow/
 # Downloaded model weights (~2.3 GB); fetched on first run, never committed
 models/
-# Ignored copies of fetched lyrics (local cross-check only)
+# Fetched lyrics are cached under ~/.censorflow/lyrics, covered by .censorflow/ above.
+# They are copyrighted and must never be committed, only used locally.
 # Test / spike scratch
 tmp/
 *.flac

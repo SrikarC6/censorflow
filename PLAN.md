@@ -44,7 +44,7 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
 ## Phase 4 - web UI
 
-- [ ] 4a: `flipdisc.js`, `font5x7.js`, `web/font-test.html` - STOP, user eyeballs glyphs
+- [x] 4a: `flipdisc.js`, `font5x7.js`, `web/style.css`, `web/font-test.html` - awaiting user's eyeball check
 - [ ] 4b: Welcome, Mode, Processing, Result
 - [ ] 4c: Review screen
 - [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`

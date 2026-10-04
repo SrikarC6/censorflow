@@ -267,3 +267,36 @@ and never normalise the mix. Reason: normalising would alter the whole track to 
 samples, which is a far bigger deviation than the clamp it replaces.
 `tests/test_censor_render.py::test_export_of_an_over_full_scale_mix_stays_close_to_the_mix` pins
 this behaviour and asserts the clamp actually ran, so the test cannot pass vacuously.
+
+## Web UI: flip-disc display
+
+- The dot field is drawn on **one canvas covering the browser window**, not as a CSS
+  `radial-gradient` behind scrolling content windows like the prototype did.
+  Reason: `AGENTS.md` puts the grid on the canvas, and a fixed CSS board behind
+  scrolling cards needs scroll-origin tracking to stay aligned. One canvas removes
+  that whole class of bug. Both lit and unlit dots are painted there.
+- Colours stay in `web/style.css` as CSS variables and `flipdisc.js` reads them with
+  `getComputedStyle` at startup, so the stylesheet remains the single source of truth
+  and the canvas cannot drift out of sync with the HTML overlay.
+- Palette: `AGENTS.md`'s `--on: #FFB800` / `--off: #1C2030` / `--bg: #05080D`, plus the
+  prototype's 42 % specular highlight on lit dots (`--on-hi`), which is what makes a dot
+  read as a physical flap rather than a flat pixel.
+- `DISC_FILL = 0.72` and default pitch 6 (clamped 4-12, `?pitch=` override), per the user's
+  choice: the prototype's fill reads much better than `AGENTS.md`'s 60 %, and pitch 6 is
+  denser, which suits a processing UI that carries more text than a portfolio page.
+- The font is **uppercase-only**, ported from the prototype: transit and LED signage never
+  sets lowercase and 5x7 lowercase is unreadable. `glyphFor` tries the literal character
+  first and then its uppercase form, so the single deliberate lowercase key (`x`, meaning
+  multiply) stays reachable without letting `a`-`z` become their own glyphs.
+  Source: the prototype's `lib/flip-font.ts`, extended with `< > _ = ; @ $ ÷` and the four
+  arrows, all of which `AGENTS.md` requires and the prototype lacked.
+- No animation, per `AGENTS.md`. `tests/test_web_font.py` asserts `flipdisc.js` contains
+  neither `requestAnimationFrame` nor `setInterval`, so this cannot creep back in by
+  accident. The user may revisit this after seeing what the interface feels like without it.
+- The animation seam is explicit: `put` mutates a cell, `paint` draws it, and `set` is both.
+  Adding a scheduler later means sitting between `put` and `paint`; no caller changes.
+- A fourth cell state `DIM` was added because a disabled button drawn `OFF`-on-`OFF` is
+  invisible and reads as a rendering bug. `--on-dim` makes it look present but inert.
+- `web/style.css` is a new file: `AGENTS.md`'s file list has no stylesheet, and one is
+  unavoidable. It also carries the amber-on-black monospace styling for the HTML overlay
+  that the review screen will need.
