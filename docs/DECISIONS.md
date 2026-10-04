@@ -485,3 +485,42 @@ any screen was built. Decisions that outlive the test page:
   it before the work means a crashed job is not silently retried. The lock is store-wide because
   this is a fanless laptop and one job at a time is the point; it is held for the whole run so a
   second caller waits for the first rather than being told to go away, and it is not reentrant.
+
+## Phase 4c: the review screen
+
+- **`web/review.js` is its own module, not more of app.js.** `app.js` was already over the ~300-line
+  guidance and the review screen is the one screen that is *not* dot-drawn, so folding dense HTML
+  into the flow module would have made both harder to read. It receives the two things it cannot
+  own - `say` and `startUpload` - and imports `state` from `ui.js`, which is what `state` is there
+  for: two copies of "which song is this" is how a preview ends up playing the wrong clip.
+- **The review screen is the one screen with a panel of dense HTML, and its edges are measured in
+  whole dots.** `.review` is `position: fixed` with `top` and `bottom` set from
+  `panel.style.top = (row + 4) * pitch` and the row the buttons are placed at. The HTML is
+  therefore always exactly the gap between the last sign and the button row, whatever the window
+  size, and cannot cover either. `NOTICE_ROWS` became an export from `ui.js` for the same reason:
+  review.js has to place its buttons clear of the status line without a second copy of that number.
+- **The panel is built once in `enter` and rebuilt in `refresh`, never in `paint`.** A painter runs
+  on every redraw - including every button hover - so building the table there would throw away the
+  scroll position and every checkbox's focus each time the pointer moved. `refresh` saves and
+  restores `scrollTop` so the row being worked on stays in view.
+- **Clicking any word in the transcript toggles its censoring; an unflagged word gains a flag.**
+  That is the only way a miss the model did not hear can be censored, and it is the reason the
+  transcript is there rather than a summary. A word that already has a flag switches rather than
+  duplicating, which is why `toggleWord` branches on the flag it was handed.
+- **A word's text is edited with `change`, not `input`.** The server judges profanity from the
+  committed text, and rebuilding the table on every keystroke would eat the caret mid-word.
+  Editing never moves `start` or `end` - a mishearing is a mishearing, not a different moment.
+- **The verdict column says `?` after an edit rather than guessing.** Deciding profanity in the
+  browser would mean shipping `data/profanity.txt` and reimplementing `detect.is_profane` in
+  JavaScript, with two word lists that could disagree. Until the next round trip reports back, the
+  honest answer is that the client does not know.
+- **A nudge cannot invert a window.** `end` is pushed to `start + NUDGE_S` if a nudge would cross
+  it, because the server rejects `end <= start` and the user would get a 400 from pressing a button
+  that looked harmless.
+- **`rendering` is a screen of its own.** `POST /review` applies the edits *and* renders before it
+  answers, so on a laptop that is several seconds with nothing to poll. The screen goes up before
+  the request and Result only after it, and a failure puts the user back on the review screen with
+  the edited flags intact - which is why `submit` never resets `flags`.
+- **`resume()` sends an `awaiting_review` job to the review screen, not the stage list.** The
+  analysis is over; there are no stages left to show, and the whole point of `?job=` is that a
+  refresh does not throw away work.

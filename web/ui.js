@@ -62,8 +62,14 @@ function fitLine(text, maxCols) {
   return `${kept}...`;
 }
 
-/** Dots reserved at the bottom of the window for the status line. */
-const NOTICE_ROWS = 13;
+/**
+ * Dots reserved at the bottom of the window for the status line.
+ *
+ * Exported because review.js has to place its buttons clear of it: it draws a
+ * dense HTML panel between the signs and the buttons, and if either edge of that
+ * panel guessed at this number the two would overlap.
+ */
+export const NOTICE_ROWS = 13;
 
 const MARGIN = 4;
 

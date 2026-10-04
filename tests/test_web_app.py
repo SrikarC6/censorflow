@@ -26,7 +26,8 @@ APP_FILE = config.WEB_DIR / "app.js"
 BOARD_FILE = config.WEB_DIR / "flipdisc.js"
 INDEX_FILE = config.WEB_DIR / "index.html"
 
-STYLES = ("ui.js", "app.js")
+STYLES = ("ui.js", "app.js", "review.js")
+REVIEW_FILE = config.WEB_DIR / "review.js"
 
 
 def _read(name: str) -> str:
@@ -126,16 +127,19 @@ def test_the_stages_are_listed_in_the_order_they_run() -> None:
     assert _listed_stages() == [stage for stage in order if stage != "rendering"]
 
 
-# A screen that nothing can reach is dead code that still looks finished. `result`
-# is the one exception until 4c: the render figures only exist in the review
-# response, so nothing can show that screen yet.
-PENDING_SCREENS = {"result": "4c renders after the review POST"}
+# Screens are registered and shown from two modules: app.js owns the flow and
+# review.js owns the review and render screens, because the review screen is dense
+# HTML and has no business inflating a file that is already over the size guidance.
+SCREEN_MODULES = ("app.js", "review.js")
+
+# A screen that nothing can reach is dead code that still looks finished.
+PENDING_SCREENS: dict[str, str] = {}
 
 
 def test_every_screen_a_button_can_reach_is_registered() -> None:
-    app = _read("app.js")
-    registered = set(re.findall(r"ui\.register\('([a-z]+)'", app))
-    shown = set(re.findall(r"ui\.show\('([a-z]+)'", app))
+    sources = "".join(_read(name) for name in SCREEN_MODULES)
+    registered = set(re.findall(r"ui\.register\('([a-z]+)'", sources))
+    shown = set(re.findall(r"ui\.show\('([a-z]+)'", sources))
     assert registered, "no screens registered"
     assert shown <= registered, f"shown but never registered: {shown - registered}"
     unreachable = registered - shown
@@ -249,7 +253,7 @@ def test_every_name_app_js_imports_is_actually_exported() -> None:
         for name in names.split(","):
             imported.add(name.strip())
     exported: set[str] = set()
-    for name in ("api.js", "ui.js", "flipdisc.js"):
+    for name in ("api.js", "ui.js", "flipdisc.js", "review.js"):
         exported |= set(re.findall(r"export (?:async )?function (\w+)", _read(name)))
         exported |= set(re.findall(r"export class (\w+)", _read(name)))
         exported |= set(re.findall(r"export const (\w+)", _read(name)))
@@ -260,8 +264,8 @@ def test_every_name_app_js_imports_is_actually_exported() -> None:
 
 
 def test_the_ui_module_owns_the_state_the_screens_read() -> None:
-    # review.js arrives in 4c and needs the same job, so two copies of state would
-    # mean previewing the wrong song.
+    # review.js needs the same job and the same upload as app.js, so two copies of
+    # "which song is this" would mean previewing the wrong one.
     ui = _read("ui.js")
     assert "export const state = {" in ui
     assert "export function createUi" in ui
@@ -309,7 +313,7 @@ def test_the_screens_do_not_animate_either() -> None:
 
 
 def test_no_debug_output_was_left_in_the_web_sources() -> None:
-    for name in ("api.js", "ui.js", "app.js", "flipdisc.js"):
+    for name in ("api.js", "ui.js", "app.js", "review.js", "flipdisc.js"):
         text = _read(name)
         assert "console.log" not in text, name
         assert "debugger" not in text, name
@@ -330,12 +334,142 @@ def test_a_job_can_be_picked_back_up_from_the_query_string() -> None:
     assert "new URLSearchParams(window.location.search).get('job')" in app
     assert "api.getJob(id)" in app
     # A finished job cannot be re-entered: the render figures only exist in the
-    # review response, which is phase 4c's business.
+    # review response, and there is nothing left to review.
     assert "state_ === 'done' || state_ === 'error'" in app
+    # A job that is waiting for review is picked up at the review screen, not at
+    # the stage list it no longer has any stages left to show.
+    assert "review.open(id)" in app
 
 
 def test_starting_again_releases_the_object_url_and_the_stream() -> None:
     body = _read("app.js").split("function startUpload()", 1)[1].split("\n}", 1)[0]
     assert "URL.revokeObjectURL" in body
     assert "state.stopFollowing()" in body
+    assert "review.reset()" in body
     assert "ui.show('welcome')" in body
+
+
+# --- the review screen --------------------------------------------------------
+
+
+def test_the_review_screen_is_asked_for_and_shown_from_app_js() -> None:
+    app = _read("app.js")
+    assert "import { registerReview } from './review.js'" in app
+    # The job reaching `awaiting_review` goes straight to the review screen; there
+    # is no "press a button to start reviewing" step in between.
+    assert app.count("review.open(") >= 2
+
+
+def test_the_transcript_can_add_a_missed_flag_by_clicking_a_word() -> None:
+    review = _read("review.js")
+    # Every word is a button, so a word the model did not hear is one click away
+    # from being censored.
+    assert "span.className = 'w'" in review
+    assert "flags.push({" in review
+    assert "word_index: index" in review
+    assert re.search(r"function toggleWord\(index, flag\)", review)
+
+
+def test_an_existing_flag_is_switched_rather_than_duplicated() -> None:
+    body = _read("review.js").split("function toggleWord(index, flag)", 1)[1]
+    body = body.split("} else {", 1)[0]
+    assert "flag.censor = !flag.censor" in body
+    assert "flags.push(" not in body
+
+
+def test_a_flag_row_can_switch_censor_edit_the_word_and_nudge_both_ends() -> None:
+    review = _read("review.js")
+    assert "box.addEventListener('change'" in review
+    assert "field.addEventListener('change'" in review
+    assert "flag[edge] = Math.max(0" in review
+    # Nudging an edge must never invert the window; the server would reject it.
+    assert "if (flag.end <= flag.start) flag.end = flag.start + NUDGE_S;" in review
+    assert "const NUDGE_S = 0.01;" in review
+
+
+def test_editing_a_word_never_moves_its_timing() -> None:
+    body = _read("review.js").split("field.addEventListener('change'", 1)[1]
+    body = body.split("\n    });", 1)[0]
+    assert "flag.text = text;" in body
+    assert "flag.start" not in body
+    assert "flag.end" not in body
+
+
+def test_a_flag_row_offers_both_previews_and_asks_for_padded_audio() -> None:
+    review = _read("review.js")
+    assert "preview('original', flag)" in review
+    assert "preview('censored', flag)" in review
+    assert "api.clipUrl(" in review
+    assert "flag.start - PREVIEW_PAD_S" in review
+    assert "const PREVIEW_PAD_S = 1.5;" in review
+
+
+def test_a_lyrics_only_flag_says_where_it_came_from_and_to_verify_it() -> None:
+    review = _read("review.js")
+    assert "const BADGES = { asr: 'ASR', lyrics: 'LYRICS', both: 'BOTH' }" in review
+    assert "if (flag.approx)" in review
+    assert "verify.textContent = 'VERIFY'" in review
+
+
+def test_the_censor_switch_is_sent_exactly_as_the_user_left_it() -> None:
+    # The server recomputes whether a word is profane and honours the switch as
+    # sent; the client must not second-guess either.
+    review = _read("review.js")
+    body = review.split("SENT.map", 1)[0].rsplit("api.postReview", 1)[0]
+    assert "flags: flags.map((flag) => Object.fromEntries(SENT.map" in review
+    assert "'censor'" in review.split("const SENT = ", 1)[1].split("]", 1)[0]
+    assert body is not None
+
+
+def test_the_review_panel_is_built_once_and_taken_down_when_leaving() -> None:
+    review = _read("review.js")
+    enter = review.split("enter() {", 1)[1].split("\n    },", 1)[0]
+    leave = review.split("leave() {", 1)[1].split("\n    },", 1)[0]
+    # A panel built in the painter would throw away the scroll position and every
+    # checkbox's focus on every hover of a button.
+    assert "if (!panel)" in enter
+    assert "paint(h)" not in enter
+    assert "panel?.remove()" in leave
+
+
+def test_a_rebuild_keeps_the_row_the_user_is_working_on() -> None:
+    body = _read("review.js").split("function refresh()", 1)[1].split("\n  }", 1)[0]
+    assert "const top = panel.scrollTop;" in body
+    assert "panel.scrollTop = top;" in body
+
+
+def test_the_panel_is_sized_to_the_gap_between_the_signs_and_the_buttons() -> None:
+    # The HTML sits over the board, so it must not cover the hit-tested buttons or
+    # the title. Both edges are measured in whole dots from the board's own geometry.
+    review = _read("review.js")
+    body = review.split("ui.register('review'", 1)[1].split("\n  });", 1)[0]
+    assert "const buttonRow = h.rows() - NOTICE_ROWS - renderButton.height - 3;" in body
+    assert "panel.style.top = `${(row + 4) * h.pitch()}px`;" in body
+    assert "panel.style.bottom" in body
+
+
+def test_the_board_buttons_of_the_review_screen_are_made_once() -> None:
+    review = _read("review.js")
+    made = re.findall(r"board\.button\(\{", review)
+    assert len(made) == 2, "review.js should make exactly two board buttons, once each"
+    placed = re.findall(r"h\.buttonRow\(\[([^\]]*)\]", review)
+    assert any("renderButton" in row and "overButton" in row for row in placed)
+
+
+def test_rendering_is_a_screen_and_nothing_moves_until_it_is_over() -> None:
+    review = _read("review.js")
+    assert "ui.register('rendering'" in review
+    assert "'the clean copy is being written" in review
+    submit = review.split("async function submit()", 1)[1].split("\n  }", 1)[0]
+    # The screen goes up before the request and the result screen only after it.
+    assert submit.index("ui.show('rendering')") < submit.index("await api.postReview")
+    assert submit.index("await api.postReview") < submit.index("ui.show('result')")
+
+
+def test_a_failed_render_puts_the_user_back_on_the_review_they_were_editing() -> None:
+    submit = _read("review.js").split("async function submit()", 1)[1].split("\n  }", 1)[0]
+    assert "catch (error)" in submit
+    assert "say(error.message, TONE_STOP)" in submit
+    assert "ui.show('review')" in submit
+    # ... and the edited flags are still there, because nothing was reset.
+    assert "flags = []" not in submit

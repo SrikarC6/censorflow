@@ -7,6 +7,7 @@
  */
 import * as api from './api.js';
 import { TONE_GO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
+import { registerReview } from './review.js';
 import { createUi, state } from './ui.js';
 
 const canvas = document.getElementById('board');
@@ -72,11 +73,21 @@ const download = board.button({
   tone: TONE_GO,
   onClick: () => saveOutput(),
 });
+const reviewButton = board.button({
+  label: 'REVIEW THE FLAGS',
+  scale: 2,
+  tone: TONE_GO,
+  onClick: () => review.open(state.job.id),
+});
+
+// The review screens live in their own module; they are handed the two things they
+// cannot own, the status line and the way out.
+const review = registerReview(ui, { say, startUpload, status: () => status });
 
 // --- screens -----------------------------------------------------------------
 
 /** How tall each screen's block is, in dots, so `top` can centre it. */
-const BLOCK = { welcome: 100, mode: 118, awaiting: 90, result: 150, failed: 90 };
+const BLOCK = { welcome: 100, mode: 118, awaiting: 120, result: 150, failed: 90 };
 
 ui.register('welcome', {
   paint(h) {
@@ -137,8 +148,11 @@ ui.register('awaiting', {
   paint(h) {
     let row = h.sign('READY FOR REVIEW', { row: h.top(BLOCK.awaiting) });
     // A sentence rather than a headline, so it is set smaller and may wrap.
-    row = h.sign('THE REVIEW SCREEN ARRIVES IN 4C', { row: row + 4, scale: 2 });
-    h.buttonRow([againButton], row + 8, { col: Math.floor(h.cols() / 2) - 9 });
+    row = h.sign('CHECK THE WORDS BEFORE ANYTHING IS MUTED', { row: row + 4, scale: 2 });
+    h.buttonRow([reviewButton], row + 8, { col: Math.floor(h.cols() / 2) - 13 });
+    h.buttonRow([againButton], row + 8 + reviewButton.height + 3, {
+      col: Math.floor(h.cols() / 2) - 9,
+    });
     h.notice(status.text, status.tone);
   },
 });
@@ -231,6 +245,9 @@ function startUpload() {
     render: null,
     player: null,
   });
+  // The review screen keeps its own copy of the transcript and the flags, because
+  // they are what the user is editing. A new song must not inherit them.
+  review.reset();
   say('');
   ui.show('welcome');
 }
@@ -287,8 +304,8 @@ function onJobEvent(event) {
       return;
     }
     if (state.snapshot.state === 'awaiting_review') {
-      say('EVERY FLAG IS WAITING FOR YOU');
-      ui.show('awaiting');
+      say('every flag is waiting for you');
+      review.open(state.job.id);
       return;
     }
     ui.refresh();
@@ -341,12 +358,12 @@ async function resume(id) {
     return;
   }
   state.job = { id };
-  ui.show('processing');
   if (state_ === 'awaiting_review') {
-    say('EVERY FLAG IS WAITING FOR YOU');
-    ui.show('awaiting');
+    say('every flag is waiting for you');
+    review.open(id);
     return;
   }
+  ui.show('processing');
   state.stopFollowing = api.followJob(id, onJobEvent);
 }
 
@@ -382,3 +399,4 @@ async function checkInstall() {
 window.__board = board;
 window.__ui = ui;
 window.__state = state;
+window.__review = review;

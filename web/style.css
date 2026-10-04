@@ -202,6 +202,219 @@ button.html:focus-visible {
 }
 
 
+/* --- the review screen --------------------------------------------------------
+ * The one screen that is mostly not dots. A transcript is hundreds of words of
+ * small type and a flag row is seven columns of figures: dot-drawing either would
+ * be unreadable, so both are real HTML in the monospace face over the board.
+ * Only the title, the count and the buttons are drawn as signs.
+ *
+ * `top` and `bottom` are set from JS in whole dots, so the panel starts below the
+ * last sign and stops above the buttons rather than covering either.
+ */
+.review {
+  position: fixed;
+  left: 2vw;
+  right: 2vw;
+  top: 120px;
+  bottom: 150px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 16px 18px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.review-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-head strong {
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Pushes the table's heading right of the scrollbar when the box is short. */
+.review-spacer {
+  flex: 1 1 auto;
+}
+
+.review h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.review h3.section {
+  margin-top: 18px;
+}
+
+/*
+ * The transcript. Reading order is the argument: it is what the user already knows
+ * the song says, so it comes first and the table of flags is underneath it.
+ */
+.transcript {
+  font-size: 12.5px;
+  line-height: 1.9;
+  word-spacing: 0.1em;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.transcript .w {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+
+.transcript .w:hover,
+.transcript .w:focus-visible {
+  background: color-mix(in srgb, var(--on) 22%, transparent);
+  outline: none;
+}
+
+/* A flagged word, shown the way it will be heard: still there, just quieter. */
+.transcript .w.flag {
+  color: var(--go);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--go) 60%, transparent);
+  text-underline-offset: 3px;
+}
+
+/* Switched off in the table: the user has decided this one plays. */
+.transcript .w.flag.off {
+  color: var(--dim);
+  text-decoration: line-through;
+  text-decoration-color: var(--dim);
+}
+
+/* Timed from lyrics rather than measured by the model, so the user should listen. */
+.transcript .w.approx {
+  border-bottom: 1px dotted var(--stop);
+}
+
+table.grid.flags {
+  font-variant-numeric: tabular-nums;
+}
+
+table.grid.flags th {
+  padding-right: 12px;
+}
+
+table.grid.flags td {
+  padding: 4px 12px 4px 0;
+  white-space: nowrap;
+}
+
+table.grid.flags input[type='text'].word {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 1px 2px;
+  width: 11ch;
+}
+
+table.grid.flags input[type='text'].word:hover {
+  border-bottom-color: var(--line);
+}
+
+table.grid.flags input[type='text'].word:focus {
+  outline: none;
+  border-bottom-color: var(--on);
+}
+
+table.grid.flags input[type='checkbox'] {
+  accent-color: var(--go);
+  cursor: pointer;
+  margin: 0;
+}
+
+/* Timings and the nudge buttons around them. */
+td .t {
+  display: inline-block;
+  min-width: 9ch;
+  color: var(--fg);
+}
+
+/*
+ * A small control inside a row. The nudge and preview buttons are dense by nature -
+ * there may be two per cell - so they are HTML rather than dot-drawn buttons, and
+ * they are the same sign inverted as the big ones.
+ */
+button.mini {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 2px 6px;
+  margin-left: 4px;
+  cursor: pointer;
+}
+
+button.mini:hover,
+button.mini:focus-visible {
+  background: var(--on);
+  border-color: var(--on);
+  color: var(--bg);
+  outline: none;
+}
+
+/* A badge says where a flag came from, which decides how much it is trusted. */
+.badge {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+
+.badge.asr,
+.badge.both {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--on) 45%, transparent);
+}
+
+/* Lyrics-only, or measured from a lyric line: cross-checked, not heard. */
+.badge.lyrics {
+  color: var(--stop);
+  border-color: color-mix(in srgb, var(--stop) 55%, transparent);
+}
+
+.verify {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--stop);
+  margin-left: 6px;
+}
+
+td.verdict {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
 /* --- font-test.html only ------------------------------------------------------
  *
  * Every box on this page is a whole number of dots tall and wide. That is the

@@ -67,7 +67,21 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
   - fixed a real race found while writing the tests: `create` enqueues the job, so the worker
     thread and any inline `run()` executed it twice over one directory. `JobStore.run` now claims
     each job once
-- [ ] 4c: Review screen
+- [x] 4c: Review screen
+  - `web/review.js` owns the transcript, the flag table and the Render button; `app.js` registers
+    it and hands it the status line and the way out. The panel is sized in whole dots between the
+    last sign and the buttons so it can never cover either
+  - every word in the transcript is a button, so a miss is one click; a flagged word switches
+    censoring instead of duplicating
+  - rows carry a censor checkbox, an editable word, ±10 ms nudges on both edges (clamped so a
+    window cannot invert), a source badge, a VERIFY marker for estimated timing, and both
+    previews
+  - the verdict column says `?` after an edit rather than guessing: judging profanity in the
+    browser would mean shipping the word list and reimplementing detection
+  - `rendering` is its own screen because the POST blocks for as long as the render takes
+  - verified in headless Chrome against the real server: 239 words, 5 flags (2 ASR, 3 LYRICS with
+    VERIFY), word toggling adds and removes flags, nudges move the edge, Render wrote a 9 MB FLAC
+    and the job went to `done`
 - [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`
 
 ## Phase 5 - hardening and docs
