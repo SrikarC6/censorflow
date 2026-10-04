@@ -407,3 +407,69 @@ def test_a_missing_web_directory_does_not_break_the_api(tmp_path: Path, monkeypa
     store = jobs.JobStore(root=tmp_path / "jobs", backend_factory=FakeBackend)
     with TestClient(server.create_app(store=store)) as test_client:
         assert test_client.get("/openapi.json").status_code == 200
+
+
+# --- health ------------------------------------------------------------------------------
+
+
+def test_health_reports_that_this_install_can_work(client: TestClient) -> None:
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ffmpeg"] is True
+    assert payload["server"] == "censorflow"
+    assert Path(payload["asr_model_dir"]) == config.MODEL_DIR / config.ASR_MODEL.rsplit("/", 1)[-1]
+
+
+def test_health_says_when_ffmpeg_is_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from censorflow import audio_io
+
+    def no_ffmpeg() -> None:
+        raise audio_io.AudioError("ffmpeg is not installed. Install it with: brew install ffmpeg")
+
+    monkeypatch.setattr(server.audio_io, "check_ffmpeg", no_ffmpeg)
+    payload = client.get("/api/health").json()
+    assert payload["ffmpeg"] is False
+    # The reason is carried, because the welcome screen shows it verbatim.
+    assert "brew install ffmpeg" in payload["reason"]
+
+
+def test_health_does_not_fail_when_the_asr_model_is_absent(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "MODEL_DIR", config.MODEL_DIR / "no-such-models")
+    payload = client.get("/api/health").json()
+    assert payload["asr_model_present"] is False
+    assert payload["ffmpeg"] is True
+
+
+# --- the web files ------------------------------------------------------------------------
+
+
+def test_web_files_are_served_with_no_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Chrome caches ES modules by URL, so an edit to app.js that the browser
+    # replays from disk looks exactly like broken code. `no-cache` revalidates.
+    monkeypatch.setattr(config, "WEB_DIR", config.WEB_DIR)
+    store = jobs.JobStore(root=tmp_path / "jobs", backend_factory=FakeBackend)
+    with TestClient(server.create_app(store=store)) as test_client:
+        response = test_client.get("/index.html")
+    assert response.status_code == 200, config.WEB_DIR
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_the_web_app_files_are_all_served(tmp_path: Path) -> None:
+    store = jobs.JobStore(root=tmp_path / "jobs", backend_factory=FakeBackend)
+    with TestClient(server.create_app(store=store)) as test_client:
+        for name in ("index.html", "app.js", "api.js", "ui.js", "flipdisc.js", "font5x7.js", "style.css"):
+            response = test_client.get(f"/{name}")
+            assert response.status_code == 200, name
+            assert response.content, name
+        # ES modules have to arrive as JavaScript or the browser refuses them.
+        assert "javascript" in test_client.get("/app.js").headers["content-type"]

@@ -4,8 +4,8 @@ There is no JavaScript test runner in this project, so this reads
 `web/font5x7.js` as text and checks both font tables directly. A typo in one
 bitmask row would otherwise only show up as a subtly wrong letter on a canvas.
 
-Two sets live in the file: `SERIF` (7x9, the default) and `SANS` (5x7, the
-transit-signage original). They have different metrics, so the shape assertions
+Two sets live in the file: `SANS` (5x7, the default) and `SERIF` (7x9, behind
+the toggle on the test page). They have different metrics, so the shape assertions
 are parameterised per set.
 """
 

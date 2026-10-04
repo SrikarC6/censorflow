@@ -197,6 +197,9 @@ class JobStore:
         self._backend_factory = backend_factory or LocalBackend
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        # One job at a time, and only ever once. See `run`.
+        self._run_lock = threading.Lock()
+        self._ran: set[str] = set()
         self._pending: queue.Queue[str] = queue.Queue()
         self._worker: threading.Thread | None = None
 
@@ -254,12 +257,35 @@ class JobStore:
         self._worker.start()
 
     def run(self, job: Job) -> None:
-        """Run one job to completion, inline. This is what the worker thread calls."""
-        try:
-            self._execute(job)
-        except Exception as exc:  # the job must always reach a terminal state
-            logger.exception("job %s crashed", job.id)
-            job.fail(_friendly(exc))
+        """Run one job to completion, inline. This is what the worker thread calls.
+
+        A job runs exactly once. `create` enqueues it, so the worker thread will pick
+        it up; if anything else calls this first - a test driving a job by hand, an
+        operator retrying one - it takes the lock and does the work, and the worker's
+        later attempt finds the job already run and returns. Without the claim the two
+        would run two pipelines over one directory at the same time, which is how a
+        test ends up asserting on a half-written `words.json`.
+
+        The claim is recorded before the work, so a job that crashes is not retried:
+        the job has failed, and failing it again would hide the first error. It is
+        keyed on "has run" rather than `State.finished`, because the pipeline stops at
+        `awaiting_review` - not finished, but emphatically not to be analysed again.
+
+        The lock is store-wide rather than per job because this is a fanless laptop:
+        one job at a time is the point. It is held for the whole run, so a second
+        caller waits for the first to finish rather than being told to go away, and it
+        is not reentrant - nothing under it calls `run`.
+        """
+        with self._run_lock:
+            with self._lock:
+                if job.id in self._ran:
+                    return
+                self._ran.add(job.id)
+            try:
+                self._execute(job)
+            except Exception as exc:  # the job must always reach a terminal state
+                logger.exception("job %s crashed", job.id)
+                job.fail(_friendly(exc))
 
     def _drain(self) -> None:
         while True:

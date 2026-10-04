@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CensorFlow</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- The dot board. One canvas, the whole window, every sign drawn into it. -->
+    <canvas id="board"></canvas>
+    <!-- Dense or interactive content (the file input, the audio transport) lives
+         here in real HTML, on top of the board, never on it. -->
+    <div id="overlay" class="overlay"></div>
+    <!-- Announcements for a screen reader. The board is a picture of dots. -->
+    <p id="live" class="sr-only" role="status" aria-live="polite"></p>
+    <input id="file" class="sr-only" type="file" accept="audio/*,.m4a,.mp3,.flac,.wav,.ogg,.opus,.aiff,.aif,.wma" />
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

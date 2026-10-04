@@ -426,6 +426,10 @@ export function createBoard(canvas, options = {}) {
       enabled: true,
       hovered: false,
       pressed: false,
+      // Only the buttons the current screen placed are drawn. Every button ever
+      // created lives in one list, and drawing all of them leaves the previous
+      // screen's buttons sitting on the display.
+      shown: false,
       width: 0,
       height: 0,
     };
@@ -433,7 +437,16 @@ export function createBoard(canvas, options = {}) {
     handle.place = (nextCol, nextRow) => {
       handle.col = nextCol;
       handle.row = nextRow;
+      handle.shown = true;
       layout();
+      return handle;
+    };
+
+    /** Take this button off the display without destroying it. */
+    handle.hide = () => {
+      handle.shown = false;
+      handle.hovered = false;
+      handle.pressed = false;
       return handle;
     };
 
@@ -524,7 +537,7 @@ export function createBoard(canvas, options = {}) {
     const total = Math.max(3, width);
     // One row of air under the bar, so it reads as a bar inside the frame rather
     // than as a thick bottom border.
-    plate({ col, row, cols: total, rows: barRow + 3 - row, tone });
+    plate({ col, row, cols: total, rows: barRow + 3 - row, tone, ink: tone === TONE_PLAIN ? null : tone });
     if (captionRows) stampText(label, col + 2, row + 2, { scale, font });
     const barCols = total - 4;
     const filled = Math.round(Math.max(0, Math.min(1, pct)) * barCols);
@@ -561,7 +574,7 @@ export function createBoard(canvas, options = {}) {
     // Buttons draw after the painters: a plate is remembered, and the remembered
     // plates have to be in the same order as the pixels, so they are all rebuilt
     // in one pass rather than patched in place.
-    for (const handle of buttons) handle.draw();
+    for (const handle of buttons) if (handle.shown) handle.draw();
     repaintAll();
   }
 
@@ -607,14 +620,23 @@ export function createBoard(canvas, options = {}) {
      * drive a button from somewhere other than a click on it.
      */
     handles() {
-      return buttons.map(({ col, row, width, height, label, enabled }) => ({
+      return buttons.map(({ col, row, width, height, label, enabled, shown }) => ({
         col,
         row,
         width,
         height,
         label,
         enabled,
+        shown,
       }));
+    },
+    /**
+     * The button objects themselves, for a screen that has to change them
+     * (`handles` is a read-only snapshot: the review screen drives clicks through
+     * it, while this is for placement and state).
+     */
+    allButtons() {
+      return buttons;
     },
     /** The grid cell under a screen point, or null when it misses the board. */
     cellAt(clientX, clientY) {

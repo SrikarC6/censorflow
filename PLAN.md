@@ -54,8 +54,19 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
     colour, and a hover inverts the plate while knocking the label out of it. The banner
     scrolls the whole caption continuously with a wide gap between repeats.** Specimen tiles
     keep their unlit field, because a glyph is only legible against the full matrix.
-    Awaiting the user's eyeball check.
-- [ ] 4b: Welcome, Mode, Processing, Result
+    **Approved by the user.**
+- [x] 4b: Welcome, Mode, Processing, Result
+  - `web/api.js` (the server as functions), `web/ui.js` (screen registry, `state`, sign/meter/
+    buttonRow/notice helpers), `web/index.html`, `web/app.js`, `tests/test_web_app.py`
+  - `GET /api/health` so the welcome screen can say *why* this install cannot work; static files
+    served `no-cache` so an edited ES module is not replayed from Chrome's cache
+  - verified in headless Chrome against the real server: Welcome, Processing (real Demucs +
+    Parakeet subprocesses over SSE) and Awaiting; Result by injecting render stats, since only
+    the 4c review POST produces them
+  - **Result has no way in yet** - 4c's review POST reaches it
+  - fixed a real race found while writing the tests: `create` enqueues the job, so the worker
+    thread and any inline `run()` executed it twice over one directory. `JobStore.run` now claims
+    each job once
 - [ ] 4c: Review screen
 - [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`
 

@@ -94,6 +94,32 @@ def test_confirm_renders_and_finishes(store: jobs.JobStore, song: Path, tmp_path
     assert (job.directory / "windows.json").is_file()
 
 
+def test_a_job_is_never_run_twice(store: jobs.JobStore, song: Path) -> None:
+    """`create` enqueues the job, so the worker thread will run it as well.
+
+    Two pipelines over one directory is how a caller ends up reading a half-written
+    `words.json`, so the second attempt has to find the job finished and do nothing.
+    """
+    job = _drain(store, store.create(song))
+    words = job.words
+
+    # The worker thread arrives second, exactly as it would behind the server.
+    store.run(store.get(job.id))
+
+    assert job.words is words, "the job was analysed a second time"
+
+
+def test_a_finished_job_is_not_re_executed(store: jobs.JobStore, song: Path) -> None:
+    job = _drain(store, store.create(song))
+    store.confirm(job)
+    output = job.output_path.stat().st_mtime_ns
+
+    store.run(store.get(job.id))
+
+    assert job.state is jobs.State.DONE
+    assert job.output_path.stat().st_mtime_ns == output, "a done job was rendered again"
+
+
 def test_output_media_type_comes_from_the_extension(store: jobs.JobStore, song: Path) -> None:
     job = _drain(store, store.create(song, export_format="flac"))
     store.confirm(job)

@@ -428,3 +428,60 @@ any screen was built. Decisions that outlive the test page:
   resets. `prefers-reduced-motion` draws a single static frame. `gap` (14 dots) separates one
   repeat from the next, because the two are the same sentence and without air between them they
   read as one run-on word.
+
+### Phase 4b: the screens
+
+- **`state` lives in `ui.js`, not `app.js`.** `review.js` arrives in 4c and needs the same job,
+  the same upload and the same transport element. Two copies of "which job am I on" is how a
+  review screen ends up previewing the wrong song, so the one object every screen reads is
+  exported from the module that owns the board.
+- **Static files are served `Cache-Control: no-cache` (`_WebFiles`).** Chrome caches ES modules
+  by URL, so an edit to `app.js` was replayed from disk and looked exactly like broken code.
+  Diagnosing that cost more time than the header costs.
+- **A button must be created once and *placed* again on every paint.** Creating a handle inside
+  a painter appends one to the hit-test list on every redraw. `board.button` now carries a
+  `shown` flag that only `place()` sets, and `redraw()` draws the shown handles only - otherwise
+  Welcome's CHOOSE A SONG stayed on screen behind the Result screen. `handles()` returns a
+  read-only snapshot for inspection; `allButtons()` returns the live handles, because calling
+  `hide()` on a snapshot is a `TypeError` that only shows up when a screen changes.
+- **`fitText`, not `pickScale`.** `pickScale` answers "what is the largest scale at which this
+  wraps" and returns a scale *and* the wrapped lines. Stamping the original string at that scale
+  is how a subtitle ends up running off both edges, and it cannot express a line budget at all,
+  so a subtitle that needed three rows pushed the button under it. `ui.js` has its own
+  `fitText(text, maxCols, maxLines)` over `SCALES = [4, 3, 2, 1]`, and every screen declares its
+  own height in `BLOCK` for `h.top(tall)` to centre it.
+- **The status line is cut to the window, with the ellipsis counted first.** `fitLine` measures
+  `label + "..."` rather than `label`, because appending the ellipsis after the fit grows the
+  label past the width it was just measured against and the sign then clips its own last glyphs
+  instead of saying less. The sign also sits two dots clear of the bottom edge.
+- **`plate` takes a tone twice: `tone` paints the hairline, `ink` the dots.** `sign()`,
+  `notice()` and `progress()` pass both. Passing only `tone` gave a red border around amber
+  letters, which reads as two opinions rather than one warning.
+- **`GET /api/health` carries the reason, and the welcome screen shows it.** ffmpeg is a hard
+  requirement and the speech model is a 2.3 GB download; both are cheaper to find before a user
+  picks a song than three stages into a job. `checkInstall()` runs on load, and a server that
+  will not answer is not a red sign - the page still works if it comes back.
+- **A finished job is not resumed from `?job=`.** The render figures only exist in the review
+  response, so `resume()` sends a done or errored job back to Welcome with an explanation.
+- **The A/B transport is real HTML on the overlay.** A scrub bar and a volume control are dense
+  widgets; drawing them as dots would be worse, not better. One `<audio>` element swaps `src`
+  between the browser's own object URL (the original, which the server never has to serve back)
+  and the output URL, restoring `currentTime` on `loadedmetadata` - swapping elements would lose
+  both the position and the play state. It is recoloured with a CSS filter rather than a custom
+  control, which is a shortcut worth revisiting.
+- **`tests/test_web_app.py` reads the JS as text** - there is still no JS runner. It pins the
+  wiring rather than the behaviour: every path `api.js` asks for is a route the app serves, every
+  stage the Processing screen lists is a state the pipeline announces, every registered screen
+  is reachable, every button handle is declared once and placed by a painter, and every name
+  `app.js` imports is something one of the modules exports. Each of those is a mismatch that
+  would otherwise surface only as a dead click.
+- **A job runs exactly once, and the claim is "has run" not "is finished".** `create` enqueues the
+  job, so the worker thread will pick it up; a caller that gets there first - a test driving a
+  job by hand - takes a store-wide `_run_lock` and records the id in `_ran` *before* the work.
+  Two pipelines over one job directory is how a test asserts on a half-written `words.json`, and
+  this was the cause of two separate one-off flakes in `tests/test_server.py` that could never be
+  reproduced on demand. Keying the claim on `State.finished` would not have worked: the pipeline
+  stops at `awaiting_review`, which is not finished but must never be analysed again. Recording
+  it before the work means a crashed job is not silently retried. The lock is store-wide because
+  this is a fanless laptop and one job at a time is the point; it is held for the whole run so a
+  second caller waits for the first rather than being told to go away, and it is not reentrant.

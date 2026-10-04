@@ -2,6 +2,7 @@
 
 Routes from `AGENTS.md`:
 
+    GET  /api/health                  is this install ready to work
     POST /api/upload                  save a song, return a job id
     POST /api/jobs                    start analysing it
     GET  /api/jobs/{id}               poll for state
@@ -79,6 +80,33 @@ class StartJob(BaseModel):
 
 def _add_api(app: FastAPI) -> None:
     api = app.router
+
+    @api.get("/api/health")
+    async def health() -> dict[str, Any]:
+        """What the front end needs to know before it offers to do anything.
+
+        ffmpeg is the one hard requirement, and it is worth checking before a user
+        picks a song rather than after. The model check is informational: on a first
+        run the models are not there yet, and the UI says so instead of failing
+        three stages in.
+        """
+        try:
+            audio_io.check_ffmpeg()
+            ffmpeg = True
+            reason = ""
+        except audio_io.AudioError as error:
+            ffmpeg = False
+            # Carried, not logged: the welcome screen shows this string as it is,
+            # because "it does not work" with no reason is not an answer.
+            reason = str(error)
+        model_dir = config.MODEL_DIR / config.ASR_MODEL.rsplit("/", 1)[-1]
+        return {
+            "ffmpeg": ffmpeg,
+            "reason": reason,
+            "asr_model_present": (model_dir / "config.json").is_file(),
+            "asr_model_dir": str(model_dir),
+            "server": "censorflow",
+        }
 
     @api.post("/api/upload")
     async def upload(file: Annotated[UploadFile, File()]) -> dict[str, Any]:
@@ -333,6 +361,21 @@ def _media_type(suffix: str) -> str:
 # --- static web app ---------------------------------------------------------------
 
 
+class _WebFiles(StaticFiles):
+    """Static files that are always revalidated.
+
+    The web app is served from the source tree and has no hashed asset names, so a
+    browser that cached `app.js` yesterday would keep running yesterday's screens
+    after a change - which during development looks exactly like a change that did
+    not work. `no-cache` still allows a 304, so it costs one conditional request.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def _mount_web(app: FastAPI) -> None:
     web_dir = config.WEB_DIR
     if not web_dir.is_dir():
@@ -341,7 +384,7 @@ def _mount_web(app: FastAPI) -> None:
 
     # Mounted last, at the root, so `web/index.html` and its ES modules are served from
     # their natural paths. Every /api route is registered before this and therefore wins.
-    app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
+    app.mount("/", _WebFiles(directory=web_dir, html=True), name="web")
 
 
 app = create_app()
