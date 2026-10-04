@@ -1,9 +1,9 @@
 /**
  * Buttons and progress bars on the flip-disc board.
  *
- * A button is a plate plus a label, hit-tested in grid cells. Drawing goes
- * through the surface from board-paint.js so a hover repaints the whole board
- * once, which is what keeps the plate and the letters in agreement.
+ * A button is a plate plus a label, hit-tested in grid cells. Hover and press
+ * redraw only that plate, so the banner can keep scrolling without a full-grid
+ * paint. A full `redraw` is still what rebuilds a screen.
  */
 import { getFont, textCols } from './font5x7.js';
 import { DIM, INV, ON, TONE_PLAIN } from './flipdisc.js';
@@ -20,13 +20,14 @@ export function attachControls(env, surface) {
    * beaded one. A disabled button keeps its plate and dims its label: an empty
    * outline reads as a rendering bug rather than as "not available yet".
    */
-  function button({ col, row, label, scale = 1, font, tone = TONE_PLAIN, onClick }) {
+  function button({ col, row, label, scale = 1, font, tone = TONE_PLAIN, knockout = false, onClick }) {
     const handle = {
       col,
       row,
       label,
       scale,
       tone,
+      knockout,
       onClick,
       enabled: true,
       hovered: false,
@@ -81,19 +82,21 @@ export function attachControls(env, surface) {
     }
 
     /**
-     * Draw this button's plate and label. Called from `redraw` rather than on its
-     * own, because a plate is remembered on the board rather than baked into the
-     * cell buffer: one pass over the whole grid is what keeps the remembered
-     * plates and the pixels in agreement. Hovering therefore repaints the board.
+     * Draw this button's plate and label. `redraw` calls this after the painters;
+     * hover and press call it on their own so only this rect is painted.
      */
     function draw() {
       const active = handle.hovered || handle.pressed;
-      const lit = active && handle.enabled;
+      // Knockout rests lit: a yellow plate with holes for the letters. Hover
+      // flips that, so the control still has a press state.
+      const lit = handle.enabled && (handle.knockout ? !active : active);
       const ink = !handle.enabled ? DIM : lit ? INV : ON;
       // Resting: the dots are the tone's own colour, so the lettering and the
       // hairline are one colour and the button reads as a single sign. Lit: the
       // plate fills with the tone colour and the label is knocked out of it, which
-      // is what keeps the word legible through the inversion.
+      // is what keeps the word legible through the inversion. A knockout plate
+      // (STEMS) keeps the letters as off-dots on the yellow fill.
+      const holes = handle.knockout && lit;
       plate({
         col: handle.col,
         row: handle.row,
@@ -101,18 +104,25 @@ export function attachControls(env, surface) {
         rows: handle.height,
         fill: lit ? toneColour(handle.tone) : env.colours.plateBg,
         tone: lit ? TONE_PLAIN : handle.tone,
-        ink: !lit && handle.enabled && handle.tone !== TONE_PLAIN ? toneColour(handle.tone) : null,
+        ink: holes
+          ? env.colours.off
+          : !lit && handle.enabled && handle.tone !== TONE_PLAIN
+            ? toneColour(handle.tone)
+            : null,
       });
       stampText(handle.label, handle.col + 2, handle.row + 2, {
         scale: handle.scale,
-        state: ink,
+        state: holes ? ON : ink,
         font,
       });
     }
 
     handle.draw = draw;
-    /** Repaint the board. See `draw`. */
-    handle.repaint = () => env.redraw();
+    /** Paint this button only. A pass already in flight will draw it in a moment. */
+    handle.repaint = () => {
+      if (env.drawing) return;
+      handle.draw();
+    };
     handle.contains = (col, row) =>
       col >= handle.col &&
       col < handle.col + handle.width &&
@@ -126,7 +136,7 @@ export function attachControls(env, surface) {
 
   function buttonAt(col, row) {
     // `shown` is the same gate `redraw` uses. Without it, a hidden button from
-    // the previous screen (ANOTHER SONG on awaiting, CHOOSE ANOTHER on mode)
+    // the previous screen (ANOTHER SONG on awaiting, PREVIOUS PAGE on mode)
     // still owns its last grid rect and steals the click - which is how RENDER
     // on the review screen sent the user back to welcome.
     for (const handle of env.buttons) {

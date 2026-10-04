@@ -11,6 +11,7 @@ export function readColours() {
   const pick = (name, fallback) => (style.getPropertyValue(name) || fallback).trim();
   return {
     on: pick('--on', '#FFB800'),
+    ball: pick('--ball', '#F26522'),
     off: pick('--off', '#1C2030'),
     bg: pick('--bg', '#05080D'),
     hi: pick('--on-hi', 'rgba(255,230,140,0.42)'),
@@ -19,6 +20,7 @@ export function readColours() {
     plateLine: pick('--plate-line', '') || pick('--line', '#222836'),
     go: pick('--go', '#2FBF71'),
     stop: pick('--stop', '#E5484D'),
+    info: pick('--info', '#3D8BFD'),
   };
 }
 

@@ -197,6 +197,20 @@ def test_the_stems_mode_opens_a_screen_and_does_not_request() -> None:
         assert line in checklist
 
 
+def test_the_mode_screen_colours_the_title_censor_stems_and_back() -> None:
+    app = _read("app.js")
+    censor = app.split("const censorMode = board.button({", 1)[1].split("\n});", 1)[0]
+    assert "TONE_GO" not in censor
+    stems = app.split("const stemsMode = board.button({", 1)[1].split("\n});", 1)[0]
+    assert "knockout: true" in stems
+    back = app.split("const cancelMode = board.button({", 1)[1].split("\n});", 1)[0]
+    assert "PREVIOUS PAGE" in back
+    assert "TONE_INFO" in back
+    mode = _read("screens.js").split("ui.register('mode'", 1)[1].split("ui.register('processing'", 1)[0]
+    assert "tone: TONE_GO" in mode
+    assert "qualityFast.knockout" in mode
+
+
 def test_the_processing_screen_lights_the_stage_the_job_is_in() -> None:
     body = _read("screens.js").split("ui.register('processing'", 1)[1].split("\n});", 1)[0]
     assert "snapshot.state === stage" in body
@@ -232,7 +246,7 @@ def test_a_button_row_is_clamped_above_the_status_line() -> None:
     assert "bottom: () => Math.max(0, board.rows - NOTICE_ROWS - 2)" in ui
     body = ui.split("buttonRow(handles, row", 1)[1].split("\n    },", 1)[0]
     # The clamp has to be on the row that is placed, not on the cursor.
-    assert "const at = Math.min(row, Math.max(2, helpers.bottom() - height));" in body
+    assert "const at = Math.max(helpers.origin(), Math.min(row, helpers.bottom() - height));" in body
     assert "handle.place(cursor, at)" in body
 
 
@@ -269,7 +283,7 @@ def test_a_tight_window_drops_rows_rather_than_stacking_controls() -> None:
     # controls closer together.
     ui = _read("ui.js")
     assert "tight(tall)" in ui
-    assert "board.rows - NOTICE_ROWS - tall < MIN_USABLE_ROWS" in ui
+    assert "board.rows - NOTICE_ROWS - bannerRows() - tall < MIN_USABLE_ROWS" in ui
     assert "const MIN_USABLE_ROWS = 60;" in ui
     screens = _read("screens.js")
     assert screens.count("h.tight(") >= 3
@@ -277,6 +291,20 @@ def test_a_tight_window_drops_rows_rather_than_stacking_controls() -> None:
     assert "h.tight(BLOCK.mode)" in screens
     assert "h.tight(BLOCK.awaiting)" in screens
     assert "h.tight(BLOCK.result)" in screens
+
+
+def test_the_title_scrolls_and_other_signs_keep_one_size() -> None:
+    # The title used to sit in the middle and grow with the window. Scale 3 drew
+    # a 4x bitmap on a 3x stride, so a subtitle came out as overlapping noise.
+    ui = _read("ui.js")
+    assert "startMarquee(" in ui
+    assert "BANNER_TEXT = 'CENSORFLOW'" in ui
+    assert "BANNER_GAP = 40" in ui
+    assert "const SIGN_SCALE = 2" in ui
+    assert "fitText" not in ui
+    welcome = _read("screens.js").split("ui.register('welcome'", 1)[1].split("ui.register('mode'", 1)[0]
+    assert "h.sign('CENSORFLOW'" not in welcome
+    assert "scale: 3" not in _read("review.js")
 
 
 def test_the_install_is_checked_before_the_user_picks_a_song() -> None:
@@ -301,10 +329,10 @@ def test_a_toned_sign_tints_its_lettering_and_not_only_its_border() -> None:
     # Passing only one gives a red border with amber letters, which reads as two
     # opinions rather than one warning.
     ui = _read("ui.js")
-    assert "function toneInk(tone)" in ui
+    assert "function toneInk(tone, colours)" in ui
     for name in ("sign", "notice"):
         body = ui.split(f"    {name}(", 1)[1].split("\n    },", 1)[0]
-        assert "ink: toneInk(tone)" in body, name
+        assert "ink: toneInk(tone, board.colours)" in body, name
     board = _read("board-controls.js")
     progress = board.split("function progress(", 1)[1].split("\n  }", 1)[0]
     assert "ink:" in progress
@@ -364,6 +392,8 @@ def test_every_name_app_js_imports_is_actually_exported() -> None:
         "model.js",
         "screens.js",
         "session.js",
+        "atmosphere.js",
+        "welcome-scene.js",
     ):
         exported |= set(re.findall(r"export (?:async )?function (\w+)", _read(name)))
         exported |= set(re.findall(r"export class (\w+)", _read(name)))
@@ -384,7 +414,7 @@ def test_the_ui_module_owns_the_state_the_screens_read() -> None:
 
 def test_the_tones_the_screens_use_come_from_the_board() -> None:
     board = _read("flipdisc.js")
-    for tone in ("TONE_GO", "TONE_PLAIN", "TONE_STOP"):
+    for tone in ("TONE_GO", "TONE_PLAIN", "TONE_STOP", "TONE_INFO"):
         assert f"export const {tone}" in board or f"export {{ {tone}" in board, tone
 
 
@@ -414,6 +444,44 @@ def test_the_board_has_no_animation_loop() -> None:
         board = _read(name)
         assert "requestAnimationFrame" not in board, name
         assert "setInterval" not in board, name
+
+
+def test_hovering_a_button_does_not_repaint_the_whole_board() -> None:
+    # Hover used to call env.redraw(), which painted every disc while the banner
+    # was already moving. The button now paints only its own plate.
+    controls = _read("board-controls.js")
+    assert "handle.repaint = () => env.redraw()" not in controls
+    body = controls.split("handle.repaint =", 1)[1]
+    assert "if (env.drawing) return;" in body
+    assert "handle.draw();" in body
+    paint = _read("board-paint.js")
+    plate = paint.split("function plate(", 1)[1].split("function panelAt", 1)[0]
+    assert "other.col === col" in plate
+    assert "other.row === row" in plate
+    assert "key," in plate.split("const record =", 1)[1].split("const existing", 1)[0]
+
+
+def test_the_glow_is_a_few_elements_and_not_a_canvas_loop() -> None:
+    # A requestAnimationFrame over the board would repaint every dot, on a
+    # fanless laptop, to move a halo. The halo is HTML and only its opacity moves.
+    text = _read("atmosphere.js")
+    assert "requestAnimationFrame" not in text
+    assert "shadowBlur" not in text
+    assert "setInterval" not in text
+    assert "spark" not in text
+    style = (config.WEB_DIR / "style.css").read_text(encoding="utf-8")
+    assert "glow-breathe" in style
+    assert "animation: none !important" in style
+
+
+def test_the_welcome_scene_moves_words_without_repainting_the_board() -> None:
+    # The n-word block in the word list must not appear, even masked.
+    text = _read("welcome-scene.js").lower()
+    assert "requestanimationframe" not in text
+    assert "setinterval" not in text
+    assert "settimeout" in text
+    assert "nigg" not in text
+    assert "f**k" in text
 
 
 def test_the_screens_do_not_animate_either() -> None:

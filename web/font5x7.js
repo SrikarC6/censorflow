@@ -98,6 +98,22 @@ export function glyphKeys(font) {
  * staircase. Applied repeatedly, which is why only powers of two come out
  * exact; `pickScale` only ever hands it 1, 2 or 4.
  */
+/** Nearest-neighbour scale, for a factor scale2x cannot land on (3, 5, …). */
+function scaleBlock(src, factor) {
+  const height = src.length;
+  const width = src[0]?.length ?? 0;
+  const out = Array.from({ length: height * factor }, () => new Array(width * factor).fill(false));
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      if (!src[row][col]) continue;
+      for (let dr = 0; dr < factor; dr += 1) {
+        for (let dc = 0; dc < factor; dc += 1) out[row * factor + dr][col * factor + dc] = true;
+      }
+    }
+  }
+  return out;
+}
+
 function scale2x(src) {
   const h = src.length;
   const w = src[0]?.length ?? 0;
@@ -121,7 +137,7 @@ function scale2x(src) {
 
 const bitmapCache = new Map();
 
-/** Glyph at `scale` discs per font pixel. `scale` must be a power of two. */
+/** Glyph at `scale` discs per font pixel. Powers of two go through scale2x. */
 export function glyphBitmap(char, scale = 1, font) {
   const set = getFont(font);
   // Keyed on the raw character, not its uppercase form: "x" and "X" are
@@ -133,7 +149,13 @@ export function glyphBitmap(char, scale = 1, font) {
   let bitmap = glyphFor(char, set).map((bits) =>
     Array.from({ length: set.cols }, (_, col) => ((bits >> (set.cols - 1 - col)) & 1) === 1),
   );
-  for (let s = 1; s < scale; s *= 2) bitmap = scale2x(bitmap);
+  // scale2x only doubles. Feeding it 3 runs it twice and returns a 4x bitmap,
+  // which the layout then steps through on a 3x stride, so the letters overlap.
+  if ((scale & (scale - 1)) === 0) {
+    for (let s = 1; s < scale; s *= 2) bitmap = scale2x(bitmap);
+  } else {
+    bitmap = scaleBlock(bitmap, scale);
+  }
   bitmapCache.set(key, bitmap);
   return bitmap;
 }

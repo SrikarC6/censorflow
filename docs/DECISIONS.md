@@ -725,3 +725,42 @@ Commits up to and including this point: `32cb486` phase 0, `3f5688f` phase 1, `3
   Bare cock/tit/prick/spic are omitted (`cocked`, `titter`, `pricked`, `spiced`).
   `shiite`, `cummer`, and `dicker` are allowlisted.
   Source: user request 2026-10-04.
+
+- The banner, the slogan and Choose a Song carry a rectangular glow the size of
+  each plate (`atmosphere.js`). Opacity only, no sparkles, no
+  `requestAnimationFrame`, no canvas `shadowBlur`. `prefers-reduced-motion`
+  leaves the glow still. Source: user request 2026-10-04.
+
+- Choose a Song pulses on its own: `glow-breathe` on `.atmosphere .glow.glow-button`
+  (more specific than `* { animation: none !important }`) brightens and dims the
+  green rectangular shadow and a `backdrop-filter` brightness on the dots under
+  the plate. Banner and slogan stay a still amber glow. `prefers-reduced-motion`
+  leaves the pulse still. No `requestAnimationFrame` or `setInterval`.
+  Source: user request 2026-10-04.
+
+- The welcome band under Choose a Song is a small dot scene: a figure throws
+  a head-sized orange basketball into a trash can. A two-glyph asterisked swear
+  from the F**K family (not the n-word), about as wide as the ball, rides on it
+  and goes in with it. Flight is a parabola that crests under Choose a Song and
+  descends into the can, with a dotted trail. A `setTimeout` repaints only the
+  moving dots. Orange is cell state `ORANGE` (`--ball`). Source: user request
+  2026-10-04.
+
+- The title is a scrolling banner at the top of every screen (`CENSORFLOW`, 40-dot
+  gap between repeats), and signs no longer grow to fill the window. `fitText`
+  picked scale 3, and scale2x turned that into a 4x bitmap stepped on a 3x grid,
+  so the letters overlapped. Signs stay at scale 2 (scale 1 only when a word will
+  not fit). Non-power-of-two scales use a block scale so the bitmap matches the
+  stride. Source: user request 2026-10-04.
+
+- Mode screen: song title is `TONE_GO` (green), CENSOR/FAST/PRO are amber on
+  black (selected quality is a knockout plate), STEMS is a yellow knockout, and
+  back is `PREVIOUS PAGE` in `TONE_INFO` (`--info` / `#3d8bfd`). `toneInk` now
+  resolves `board.colours[tone]` so a toned sign's letters match its hairline.
+  Source: user request 2026-10-04.
+
+- Button hover/press paints only that plate (`handle.draw`), not `env.redraw()`.
+  Unkeyed plates replace by grid rect so a local paint cannot leak a panel.
+  `plate()` keeps `key` on replace, which the banner needs or every tick appends
+  a panel and `panelAt` walks a growing list. A marquee tick skips `plate()` when
+  the width is unchanged. Source: user request 2026-10-04 (hover stutter).

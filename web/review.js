@@ -186,7 +186,7 @@ export function registerReview(ui, { say, startUpload, status }) {
     },
     paint(h) {
       const on = flags.filter((flag) => flag.censor).length;
-      let row = h.sign('REVIEW', { row: 1, centre: false, scale: 3 });
+      let row = h.sign('REVIEW', { row: h.origin(), centre: false });
       row = h.sign(`${on} OF ${flags.length} FLAGS ON`, { row: row + 2, centre: false });
       // The panel is sized to the gap between the last sign and the buttons, so the
       // dense HTML can never sit on top of the board's own hit-tested buttons.

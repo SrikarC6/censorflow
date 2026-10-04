@@ -71,7 +71,7 @@ const pro = liveBoard.allButtons().find((handle) => handle.label === 'PRO');
 pro.onClick();
 assert.equal(globalThis.window.__state.quality, 'pro');
 const mode = shown();
-for (const label of ['CENSOR', 'FAST', 'PRO', 'STEMS']) {
+for (const label of ['CENSOR', 'FAST', 'PRO', 'STEMS', 'PREVIOUS PAGE']) {
   assert.ok(mode.includes(label), `mode is missing ${label}: ${mode}`);
 }
 

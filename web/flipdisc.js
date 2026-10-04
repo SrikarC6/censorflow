@@ -32,11 +32,14 @@ export const OFF = 0;
 export const ON = 1;
 export const INV = 2;
 export const DIM = 3;
+/** Orange disc used for the welcome-scene basketball. */
+export const ORANGE = 4;
 
 /** The semantic tones a plate border can carry. */
 export const TONE_GO = 'go';
 export const TONE_STOP = 'stop';
 export const TONE_PLAIN = 'plain';
+export const TONE_INFO = 'info';
 
 const RESIZE_DEBOUNCE_MS = 80;
 
@@ -112,6 +115,9 @@ export function createBoard(canvas, options = {}) {
     },
     index,
     inside,
+    get drawing() {
+      return drawing;
+    },
     redraw() {
       redraw();
     },

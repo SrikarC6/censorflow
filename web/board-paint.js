@@ -6,7 +6,7 @@
  */
 import { drawDisc, drawHighlight } from './board-field.js';
 import { layoutFlipCells } from './font5x7.js';
-import { DIM, INV, OFF, ON, TONE_GO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
+import { DIM, INV, OFF, ON, ORANGE, TONE_GO, TONE_INFO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
 
 /** Inverted flaps overdraw the lit disc so a knocked-out letter stays a hole. */
 const INV_OVERDRAW = 1.16;
@@ -38,6 +38,10 @@ export function attachPaint(env) {
       drawDisc(env.ctx, cx, cy, env.radius, env.colours.dim);
       return;
     }
+    if (state === ORANGE) {
+      drawDisc(env.ctx, cx, cy, env.radius, env.colours.ball);
+      return;
+    }
     if (state === INV) {
       // Inverted: a flap flipped to its dark side. Drawn in the plate's own
       // resting colour and a hair wider than a lit disc, so it fully covers the
@@ -52,6 +56,12 @@ export function attachPaint(env) {
     // green frame. The specular highlight belongs to the amber flaps only: on a
     // tinted disc it would read as a stray light dot.
     const ink = panel && panel.ink ? panel.ink : env.colours.on;
+    // Off-dot lettering on a lit plate has to overdraw the fill, or the yellow
+    // shows around each disc and the word reads as yellow-on-yellow.
+    if (ink === env.colours.off) {
+      drawDisc(env.ctx, cx, cy, env.radius * INV_OVERDRAW, ink);
+      return;
+    }
     drawDisc(env.ctx, cx, cy, env.radius, ink);
     if (ink === env.colours.on) drawHighlight(env.ctx, cx, cy, env.radius, env.colours.hi);
   }
@@ -114,6 +124,8 @@ export function attachPaint(env) {
    *
    * `key` names the panel so a caller that redraws one plate many times a second -
    * the scrolling banner - replaces its record instead of appending a new one.
+   * An unkeyed plate is matched by its grid rect, so a hover can redraw one
+   * button without leaking a new panel each time.
    */
   function plate({
     col,
@@ -131,20 +143,34 @@ export function attachPaint(env) {
       cols: width,
       rows: height,
       fill: fill ?? env.colours.plateBg,
-      border: tone === TONE_GO ? env.colours.go : tone === TONE_STOP ? env.colours.stop : env.colours.plateLine,
+      border:
+        tone === TONE_GO
+          ? env.colours.go
+          : tone === TONE_STOP
+            ? env.colours.stop
+            : tone === TONE_INFO
+              ? env.colours.info
+              : env.colours.plateLine,
       // `ink` is the colour the plate's own lettering takes. Left null the plate
       // uses the standard amber; a toned plate passes its tone colour so the dots
       // match the hairline. The caller passes null again while it is lit, because
       // then the lettering is knocked out instead.
       ink: ink ?? null,
+      key,
     };
-    const existing = key === null ? -1 : env.panels.findIndex((other) => other.key === key);
-    if (existing === -1) {
-      record.key = key;
-      env.panels.push(record);
-    } else {
-      env.panels[existing] = record;
-    }
+    const existing =
+      key !== null
+        ? env.panels.findIndex((other) => other.key === key)
+        : env.panels.findIndex(
+            (other) =>
+              other.key == null &&
+              other.col === col &&
+              other.row === row &&
+              other.cols === width &&
+              other.rows === height,
+          );
+    if (existing === -1) env.panels.push(record);
+    else env.panels[existing] = record;
     for (let r = row; r < row + height; r += 1) {
       for (let c = col; c < col + width; c += 1) {
         put(c, r, OFF);
@@ -187,6 +213,7 @@ export function attachPaint(env) {
   function toneColour(tone) {
     if (tone === TONE_GO) return env.colours.go;
     if (tone === TONE_STOP) return env.colours.stop;
+    if (tone === TONE_INFO) return env.colours.info;
     return env.colours.on;
   }
 

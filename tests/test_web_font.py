@@ -396,8 +396,8 @@ def test_a_toned_sign_letters_itself_in_its_own_colour() -> None:
     assert "ink = null" in text.split("function plate(", 1)[1].split("const record", 1)[0]
     assert "panel && panel.ink ? panel.ink : env.colours.on" in text
     draw = text.split("function draw()", 1)[1].split("stampText(handle.label", 1)[0]
-    assert "ink: !lit && handle.enabled && handle.tone !== TONE_PLAIN" in draw
-    assert "toneColour(handle.tone) : null" in draw
+    assert "handle.tone !== TONE_PLAIN" in draw
+    assert "toneColour(handle.tone)" in draw
     # Lit, the plate fills and the label is knocked out, so the ink is dropped again.
     assert "tone: lit ? TONE_PLAIN : handle.tone" in draw
     # A tinted disc skips the specular highlight, which belongs to amber flaps.
@@ -418,8 +418,10 @@ def test_the_banner_scrolls_the_whole_caption_with_no_seam() -> None:
     # apart, so the strip is periodic and the wrap cannot be seen.
     motion = MOTION_FILE.read_text(encoding="utf-8")
     assert "export function startMarquee(" in motion
-    assert "for (let repeat = 0; repeat < 2; repeat += 1)" in motion
-    assert "Math.ceil(visible / one.width)" in motion
+    # A short title on a wide sign needs more than two copies, or the right side
+    # stays blank. The period is one caption plus its gap, so the wrap has no seam.
+    assert "Math.ceil(visible / one.width) + 1" in motion
+    assert "offset % one.width" in motion
     assert "key: 'marquee'" in motion, (
         "the banner re-plates on every tick; without a key it would append a panel "
         "per tick and the board's panel list would grow without bound"

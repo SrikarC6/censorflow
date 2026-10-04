@@ -4,7 +4,9 @@
  * Painters live in screens.js. What a click does lives in session.js. The review
  * screen lives in review.js. A button is created once, here, and placed by a painter.
  */
-import { TONE_GO, TONE_PLAIN } from './flipdisc.js';
+import { hideWelcome, mountAtmosphere, syncBanner } from './atmosphere.js';
+import { hideScene, mountScene } from './welcome-scene.js';
+import { TONE_GO, TONE_INFO, TONE_PLAIN } from './flipdisc.js';
 import { beginModelDownload } from './model.js';
 import { registerReview } from './review.js';
 import { registerFlow } from './screens.js';
@@ -19,6 +21,16 @@ const fileInput = document.getElementById('file');
 
 const ui = createUi({ canvas, overlay });
 const { board } = ui;
+mountAtmosphere(board);
+mountScene(board);
+// After the screen paints, so a welcome redraw has already recorded the slogan.
+board.onDraw(() => {
+  syncBanner();
+  if (ui.screen !== 'welcome') {
+    hideWelcome();
+    hideScene();
+  }
+});
 
 /** The status line under everything. `say` writes this object; painters read it. */
 const status = { text: '', tone: TONE_PLAIN };
@@ -50,14 +62,14 @@ const getModel = board.button({
   onClick: () => beginModelDownload(ui, say),
 });
 const cancelMode = board.button({
-  label: 'CHOOSE ANOTHER',
+  label: 'PREVIOUS PAGE',
   scale: 1,
+  tone: TONE_INFO,
   onClick: () => actions.startUpload(),
 });
 const censorMode = board.button({
   label: 'CENSOR',
   scale: 2,
-  tone: TONE_GO,
   onClick: () => actions.startJob(),
 });
 const qualityFast = board.button({
@@ -79,6 +91,7 @@ const qualityPro = board.button({
 const stemsMode = board.button({
   label: 'STEMS',
   scale: 2,
+  knockout: true,
   onClick: () => ui.show('stems'),
 });
 const againButton = board.button({

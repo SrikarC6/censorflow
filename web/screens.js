@@ -4,6 +4,8 @@
  * The buttons are created once in app.js and handed in. A painter only places
  * them. `status` is the same object `say` writes, so a redraw sees the latest line.
  */
+import { showWelcome } from './atmosphere.js';
+import { syncScene } from './welcome-scene.js';
 import { TONE_GO, TONE_PLAIN } from './flipdisc.js';
 import { state } from './ui.js';
 
@@ -26,19 +28,17 @@ export function registerFlow(ui, controls) {
   } = controls;
 
 /** How tall each screen's block is, in dots, so `top` can centre it. */
-const BLOCK = { welcome: 100, mode: 118, awaiting: 120, result: 150, failed: 90 };
+const BLOCK = { welcome: 58, mode: 96, awaiting: 120, result: 150, failed: 90 };
+
+/** Empty rows between the banner, the slogan, and Choose a Song. */
+const WELCOME_GAP = 8;
 
 ui.register('welcome', {
   paint(h) {
-    let row = h.top(BLOCK.welcome);
-    row = h.sign('CENSORFLOW', { row });
-    row = h.sign('SILENCE THE VOCALS. KEEP THE MUSIC.', { row: row + 4 });
-    if (!h.tight(BLOCK.welcome)) {
-      row = h.sign('A RESTART DROPS A JOB STILL RUNNING', { row: row + 3, scale: 1 });
-    }
-    h.buttonRow([chooseFile], row + 8, { col: h.centre([chooseFile]) });
+    let row = h.sign('SILENCE OF THE SWEARS', { row: h.bannerEnd() + WELCOME_GAP });
+    h.buttonRow([chooseFile], row + WELCOME_GAP, { col: h.centre([chooseFile]) });
     if (!h.tight(BLOCK.welcome) && state.model && state.model.present === false) {
-      const below = row + 8 + chooseFile.height + 3;
+      const below = row + WELCOME_GAP + chooseFile.height + 3;
       if (state.model.state === 'running') {
         h.meter(state.model.message || 'DOWNLOADING THE SPEECH MODEL', (state.model.pct || 0) / 100, {
           row: below,
@@ -49,6 +49,22 @@ ui.register('welcome', {
     }
     // The format hint normally; a real reason, if the install is not ready.
     h.notice(status.text || 'MP3 M4A FLAC WAV OGG OPUS AIFF - OR DROP A FILE ANYWHERE', status.tone);
+    showWelcome(h.signBox, {
+      col: chooseFile.col,
+      row: chooseFile.row,
+      cols: chooseFile.width,
+      rows: chooseFile.height,
+    });
+    let sceneTop = chooseFile.row + chooseFile.height + 5;
+    if (!h.tight(BLOCK.welcome) && state.model && state.model.present === false) {
+      sceneTop += state.model.state === 'running' ? 22 : getModel.height + 4;
+    }
+    syncScene({
+      col: 1,
+      row: sceneTop,
+      cols: Math.max(0, h.cols() - 2),
+      rows: Math.max(0, h.bottom() - sceneTop - 2),
+    });
   },
 });
 
@@ -56,10 +72,9 @@ ui.register('mode', {
   paint(h) {
     const track = state.upload || {};
     let row = h.top(BLOCK.mode);
-    row = h.sign('CENSORFLOW', { row });
-    row = h.sign(track.title || track.filename || 'A SONG', { row: row + 3 });
-    qualityFast.setTone(state.quality === 'fast' ? TONE_GO : TONE_PLAIN);
-    qualityPro.setTone(state.quality === 'pro' ? TONE_GO : TONE_PLAIN);
+    row = h.sign(track.title || track.filename || 'A SONG', { row, tone: TONE_GO });
+    qualityFast.knockout = state.quality === 'fast';
+    qualityPro.knockout = state.quality === 'pro';
     h.buttonRow([censorMode], row + 4, { col: h.centre([censorMode]) });
     if (!h.tight(BLOCK.mode)) {
       h.buttonRow([qualityFast, qualityPro], row + 4 + censorMode.height + 2, {
@@ -67,7 +82,7 @@ ui.register('mode', {
       });
     }
     // On a window too short for two rows, the one control that matters is the one
-    // that starts the job; CHOOSE ANOTHER is always reachable from Welcome.
+    // that starts the job; PREVIOUS PAGE is always reachable from Welcome.
     if (h.tight(BLOCK.mode)) {
       h.notice(status.text, status.tone);
       return;
@@ -88,7 +103,7 @@ const STAGES = ['fetching_lyrics', 'decoding', 'separating', 'transcribing', 'de
 ui.register('processing', {
   paint(h) {
     const snapshot = state.snapshot || {};
-    let row = h.sign('WORKING', { row: 2, centre: false });
+    let row = h.sign('WORKING', { row: h.origin(), centre: false });
     row += 3;
     const done = snapshot.state === 'done';
     STAGES.forEach((stage, index) => {
