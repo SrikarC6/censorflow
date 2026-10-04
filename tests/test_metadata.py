@@ -6,19 +6,27 @@ invented placeholders.
 
 from __future__ import annotations
 
+import json
+import struct
+import subprocess
+import zlib
 from pathlib import Path
 
 import pytest
 from mutagen.id3 import TALB, TIT2, TPE1
+from mutagen.mp4 import MP4, MP4Cover
 from mutagen.wave import WAVE
 
+from censorflow import audio_io
 from censorflow.audio_io import write
 from censorflow.metadata import (
     artist_candidates,
+    copy_metadata,
     primary_artist,
     read_metadata,
     title_from_filename,
 )
+from censorflow.pipeline import PipelineResult, render_reviewed
 
 from .conftest import RATE, silence
 
@@ -124,3 +132,107 @@ class TestReadMetadata:
 
     def test_duration_comes_from_the_audio_not_the_tags(self, tmp_path: Path) -> None:
         assert read_metadata(_tagged(tmp_path)).duration == pytest.approx(1.0, abs=0.05)
+
+
+def _png() -> bytes:
+    """A valid 1x1 PNG, so a cover-art copy has a real picture to carry."""
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    image = b"\x00\xff\x00\x00"
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(image)) + chunk(b"IEND", b"")
+
+
+def _rich_m4a(directory: Path) -> Path:
+    """A silent m4a carrying the tags a ripped song actually has, plus a cover."""
+    wav = directory / "bare.wav"
+    write(wav, silence(0.4), RATE, "PCM_16")
+    path = directory / "song.m4a"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-c:a", "aac", str(path)],
+        check=True,
+        capture_output=True,
+    )
+    audio = MP4(path)
+    audio["\xa9nam"] = ["Zed Song"]
+    audio["\xa9ART"] = ["Zed Artist"]
+    audio["\xa9alb"] = ["Zed Album"]
+    audio["aART"] = ["Zed Band"]
+    audio["\xa9gen"] = ["Zed Genre"]
+    audio["\xa9day"] = ["2020"]
+    audio["trkn"] = [(4, 10)]
+    audio["disk"] = [(1, 2)]
+    audio["\xa9cmt"] = ["Zed comment"]
+    audio["\xa9lyr"] = ["la la"]
+    audio["\xa9wrt"] = ["Zed Writer"]
+    audio["covr"] = [MP4Cover(_png(), imageformat=MP4Cover.FORMAT_PNG)]
+    audio.save()
+    wav.unlink()
+    return path
+
+
+def _format_tags(path: Path) -> dict[str, str]:
+    raw = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format_tags", "-of", "json", str(path)]
+    )
+    return json.loads(raw)["format"].get("tags") or {}
+
+
+def _has_cover(path: Path) -> bool:
+    """True when the file carries a picture block. FLAC stores it outside any video stream."""
+    from mutagen import File
+
+    audio = File(path)
+    if audio is None:
+        return False
+    if getattr(audio, "pictures", None):
+        return True
+    tags = getattr(audio, "tags", None) or {}
+    return any(str(key).startswith("APIC") for key in tags)
+
+
+@pytest.mark.parametrize("fmt", ["flac", "mp3", "wav"])
+def test_a_cleaned_file_keeps_the_source_tags(tmp_path: Path, fmt: str) -> None:
+    source = _rich_m4a(tmp_path)
+    bare = tmp_path / "bare.wav"
+    write(bare, silence(0.4), RATE, "PCM_16")
+    dest = tmp_path / f"clean.{fmt}"
+    audio_io.encode(bare, dest, fmt)
+    assert copy_metadata(source, dest)
+
+    tags = _format_tags(dest)
+    for key, value in {
+        "title": "Zed Song",
+        "artist": "Zed Artist",
+        "album": "Zed Album",
+        "genre": "Zed Genre",
+        "date": "2020",
+        "comment": "Zed comment",
+        "track": "4/10",
+    }.items():
+        assert tags.get(key) == value, key
+    if fmt == "wav":
+        return
+    assert tags.get("album_artist") == "Zed Band"
+    assert tags.get("composer") == "Zed Writer"
+    assert tags.get("lyrics") == "la la"
+    assert tags.get("disc") == "1/2"
+    assert _has_cover(dest)
+
+
+def test_rendering_a_job_copies_tags_from_the_original(tmp_path: Path) -> None:
+    source = _rich_m4a(tmp_path)
+    original = tmp_path / "original.m4a"
+    source.rename(original)
+    mix = tmp_path / "mix.wav"
+    vocals = tmp_path / "vocals.wav"
+    audio = silence(0.4)
+    write(mix, audio, RATE, "PCM_16")
+    write(vocals, audio * 0, RATE, "PCM_16")
+    result = PipelineResult(job_dir=tmp_path, mix_path=mix, stems={"vocals": vocals})
+    rendered = render_reviewed(result, tmp_path / "clean.flac", "flac")
+    assert _format_tags(rendered.output_path)["title"] == "Zed Song"
+    assert _has_cover(rendered.output_path)

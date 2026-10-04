@@ -18,7 +18,14 @@ import pytest
 from censorflow import config
 
 FONT_FILE = config.WEB_DIR / "font5x7.js"
+GLYPH_FILE = config.WEB_DIR / "font-glyphs.js"
 FLIPDISC_FILE = config.WEB_DIR / "flipdisc.js"
+BOARD_FILES = ("flipdisc.js", "board-paint.js", "board-controls.js", "board-field.js")
+
+
+def _board_source() -> str:
+    """The board, including the modules it was split into."""
+    return "\n".join((config.WEB_DIR / name).read_text(encoding="utf-8") for name in BOARD_FILES)
 MOTION_FILE = config.WEB_DIR / "flip-motion.js"
 SOUND_FILE = config.WEB_DIR / "flip-sound.js"
 STYLE_FILE = config.WEB_DIR / "style.css"
@@ -40,8 +47,8 @@ _ROW = re.compile(r"0[bB][01]+|\d+")
 
 
 def _table(name: str) -> dict[str, list[int]]:
-    """One glyph table from web/font5x7.js as {character: [row masks]}."""
-    text = FONT_FILE.read_text(encoding="utf-8")
+    """One glyph table from web/font-glyphs.js as {character: [row masks]}."""
+    text = GLYPH_FILE.read_text(encoding="utf-8")
     start = text.index(f"const {name} = {{")
     body = text[start:]
     end = body.index("\n};")
@@ -229,7 +236,7 @@ def test_x_and_the_times_sign_share_a_glyph() -> None:
 
 
 def test_the_board_reads_its_colours_from_css_variables() -> None:
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     for name in ("--on", "--off", "--bg", "--on-hi"):
         assert f"'{name}'" in text, f"flipdisc.js does not read {name} from the stylesheet"
     assert "getComputedStyle(document.documentElement)" in text
@@ -240,7 +247,7 @@ def test_the_board_paints_no_background_field() -> None:
     # discs is noise behind every label. The eye reads the field instead of the
     # text. Dots are ink, drawn only where something is actually written, so a
     # plate is what a label stands on.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     unlit = text.split("if (state === OFF)", 1)[1].split("drawDisc", 1)
     assert len(unlit) == 2, (
         "the OFF branch of paint() still draws an unlit disc, so the board "
@@ -249,7 +256,7 @@ def test_the_board_paints_no_background_field() -> None:
 
 
 def test_a_plate_is_the_only_container() -> None:
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     assert "function plate(" in text, "there is no plate primitive"
     assert "plate," in text, "plate is not exposed on the board object"
     for name in ("button", "progress"):
@@ -267,7 +274,7 @@ def test_every_cell_is_painted_as_a_disc_and_never_as_a_square() -> None:
     # square. A flip-disc display made of squares is not a flip-disc display, and
     # the gaps between flaps are the whole texture. So: the only fill a cell gets
     # is the background erase, and the state is then drawn with drawDisc.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     block = text.split("function paint(col, row)", 1)[1].split("function repaintAll", 1)[0]
     assert "ctx.fillStyle = colours.on" not in block, (
         "paint() fills a lit cell with the lit colour, which paints a square"
@@ -276,7 +283,7 @@ def test_every_cell_is_painted_as_a_disc_and_never_as_a_square() -> None:
         "paint() derives the fill colour from the cell state; a lit cell must be "
         "erased to the background and then drawn as a disc"
     )
-    assert "drawDisc(ctx, cx, cy, radius, ink)" in block, (
+    assert "drawDisc(env.ctx, cx, cy, env.radius, ink)" in block, (
         "a lit cell must be a disc"
     )
 
@@ -285,7 +292,7 @@ def test_an_inverted_cell_is_a_hole_wider_than_the_flap_it_covers() -> None:
     # Hovering a plate lights its interior and stamps the label INV. If the
     # inverted disc were the same size as the lit one underneath, antialiasing
     # would leave an amber rim and the label would read as a smudge.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     block = text.split("if (state === INV)", 1)[1].split("const ink =", 1)[0]
     assert "radius * INV_OVERDRAW" in block, (
         "an inverted cell must overdraw the flap beneath it"
@@ -296,7 +303,7 @@ def test_an_inverted_cell_is_a_hole_wider_than_the_flap_it_covers() -> None:
 def test_the_lit_cells_of_a_tile_are_discs_too() -> None:
     # renderField had the same square bug: a lit cell was filled with the lit
     # colour to erase the unlit disc underneath, which made the lit dots square.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     block = text.split("export function renderField(", 1)[1].split("function drawDisc", 1)[0]
     assert "ctx.fillStyle = colours.on;\n      ctx.fillRect" not in block, (
         "renderField fills a lit cell with the lit colour, which paints a square"
@@ -328,7 +335,7 @@ def test_a_sound_toggle_is_clickable_in_both_states() -> None:
     # greyed button is a disabled button: the hit test skips it. So the one control
     # you need in order to switch the sound on was the one control you could not
     # press. State now goes in the border colour instead.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     hit = text.split("function buttonAt(col, row)", 1)[1].split("\n  function ", 1)[0]
     assert "handle.enabled === false" in hit, (
         "hit testing still skips disabled buttons, so a toggle must never be disabled"
@@ -344,7 +351,7 @@ def test_a_plate_border_is_a_hairline_and_not_a_row_of_dots() -> None:
     # The dot frame read as a beaded edge rather than as the side of a panel. The
     # border is drawn, one CSS pixel, per cell edge - the same box as the `.chip`
     # outline in the stylesheet.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     assert "const PLATE_LINE = 1;" in text
     assert "function drawPanelEdges(panel, col, row, x, y)" in text
     block = text.split("function drawPanelEdges", 1)[1].split("function toneColour", 1)[0]
@@ -364,7 +371,7 @@ def test_a_plate_border_colour_comes_from_the_same_variables_as_the_chips() -> N
     assert ".fonttest .chip.go" in style and ".fonttest .chip.stop" in style, (
         "the HTML specimens must show the two semantic plates"
     )
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     for name in ("--plate-bg", "--plate-line", "--go", "--stop"):
         assert f"'{name}'" in text, f"flipdisc.js does not read {name}"
     assert "TONE_GO" in text and "TONE_STOP" in text and "TONE_PLAIN" in text
@@ -375,7 +382,7 @@ def test_the_knockout_is_the_plate_colour_not_whatever_the_plate_is_lit_with() -
     # Regression. The inverted cell was drawn in `panel.fill`, which for a hovered
     # button is the tone it lit up in - green dots on a green plate, so the label
     # vanished exactly when you were pressing it.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     block = text.split("if (state === INV)", 1)[1].split("const ink =", 1)[0]
     assert "colours.plateBg" in block
     assert "panel.fill" not in block
@@ -385,16 +392,16 @@ def test_a_toned_sign_letters_itself_in_its_own_colour() -> None:
     # A green frame around amber dots reads as two objects bolted together; a
     # green frame around green dots reads as one sign. The plate owns the ink
     # colour, so a toned button and an HTML chip can agree.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     assert "ink = null" in text.split("function plate(", 1)[1].split("const record", 1)[0]
-    assert "panel.ink ? panel.ink : colours.on" in text
+    assert "panel && panel.ink ? panel.ink : env.colours.on" in text
     draw = text.split("function draw()", 1)[1].split("stampText(handle.label", 1)[0]
-    assert "ink: !lit && handle.enabled && handle.tone !== TONE_PLAIN" in draw
-    assert "toneColour(handle.tone) : null" in draw
+    assert "handle.tone !== TONE_PLAIN" in draw
+    assert "toneColour(handle.tone)" in draw
     # Lit, the plate fills and the label is knocked out, so the ink is dropped again.
     assert "tone: lit ? TONE_PLAIN : handle.tone" in draw
     # A tinted disc skips the specular highlight, which belongs to amber flaps.
-    assert "if (ink === colours.on) drawHighlight" in text
+    assert "if (ink === env.colours.on) drawHighlight" in text
     # renderField takes the same option so an HTML chip can be lettered too.
     assert "paintField = true, ink = null" in text
     page = FONT_TEST.read_text(encoding="utf-8")
@@ -411,8 +418,10 @@ def test_the_banner_scrolls_the_whole_caption_with_no_seam() -> None:
     # apart, so the strip is periodic and the wrap cannot be seen.
     motion = MOTION_FILE.read_text(encoding="utf-8")
     assert "export function startMarquee(" in motion
-    assert "for (let repeat = 0; repeat < 2; repeat += 1)" in motion
-    assert "Math.ceil(visible / one.width)" in motion
+    # A short title on a wide sign needs more than two copies, or the right side
+    # stays blank. The period is one caption plus its gap, so the wrap has no seam.
+    assert "Math.ceil(visible / one.width) + 1" in motion
+    assert "offset % one.width" in motion
     assert "key: 'marquee'" in motion, (
         "the banner re-plates on every tick; without a key it would append a panel "
         "per tick and the board's panel list would grow without bound"
@@ -448,7 +457,7 @@ def test_tiles_keep_the_field_that_the_board_dropped() -> None:
     # glyph is only legible against the whole matrix - strip the texture and you
     # hide the exact thing you came to inspect. So: no field on the board, a field
     # in the tiles.
-    board = FLIPDISC_FILE.read_text(encoding="utf-8")
+    board = _board_source()
     unlit = board.split("if (state === OFF)", 1)[1].split("drawDisc", 1)
     assert len(unlit) == 2, "the board is painting a field again"
 
@@ -464,7 +473,7 @@ def test_tiles_keep_the_field_that_the_board_dropped() -> None:
 def test_the_board_has_no_animation_loop() -> None:
     # The board itself stays instant. Motion lives in flip-motion.js, which only
     # the opt-in demo page uses, so a redraw is never gated on a frame callback.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     assert "requestAnimationFrame" not in text
     assert "setInterval" not in text
 
@@ -478,14 +487,14 @@ def test_the_motion_module_is_the_only_place_an_animation_loop_lives() -> None:
 def test_the_board_guards_the_cells_that_carry_text() -> None:
     # Idle flips must be able to ask "is this cell part of a word?" or they will
     # flicker the words, which is exactly what they must not do.
-    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    text = _board_source()
     assert "isProtected" in text, "the board does not expose a text-protection mask"
 
 
 def test_the_dots_are_small_and_dense() -> None:
     # A dense grid needs real gaps between discs; above ~0.6 fill the dots touch
     # and the field reads as a sheet of squares instead of a field of dots.
-    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    source = _board_source()
     fill = float(re.search(r"export const DISC_FILL = ([0-9.]+);", source).group(1))
     pitch = int(re.search(r"export const DEFAULT_PITCH = (\d+);", source).group(1))
     assert fill <= 0.6, f"DISC_FILL {fill} closes the gaps; the field will read as squares"
@@ -521,7 +530,7 @@ def test_a_hidden_button_is_not_hit() -> None:
     # Regression: hide() stopped drawing a button but not hitting it. Review opens
     # via the awaiting screen, which parks ANOTHER SONG in the same band as RENDER,
     # so the click went to startUpload and the homepage instead of the render.
-    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    source = _board_source()
     body = source.split("function buttonAt(col, row)", 1)[1].split("\n  function ", 1)[0]
     assert "!handle.shown" in body
 
@@ -530,7 +539,7 @@ def test_a_button_keeps_the_callback_it_was_given() -> None:
     # Regression: `button({ ..., onClick })` destructured `onClick` and then built a
     # handle that never stored it, so `target.onClick?.(target)` in the pointerup
     # handler was a silent no-op and every button on the board looked dead.
-    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    source = _board_source()
     body = source.split("function button({", 1)[1].split("\n  function buttonAt", 1)[0]
     assert "onClick," in body, "the handle literal must store onClick, or presses do nothing"
     assert "target.onClick?.(target)" in source, (
@@ -542,5 +551,5 @@ def test_the_board_exposes_its_button_rects_and_hit_test() -> None:
     # Screens drive buttons from outside a click (the review screen flips a checkbox
     # when a word is censored), so the rects have to be readable, and a press has to
     # be resolvable to a cell without a real pointer event.
-    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    source = _board_source()
     assert "handles()" in source and "cellAt(clientX, clientY)" in source

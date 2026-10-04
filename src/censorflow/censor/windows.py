@@ -94,6 +94,37 @@ def extend_tail(
     return float(min(extended_end, hard_cap))
 
 
+def snap_to_vocal(
+    start: float,
+    end: float,
+    rms: np.ndarray,
+    hop_s: float,
+) -> tuple[float, float]:
+    """Recentre a short estimate on the vocal peak within `SNAP_RADIUS_MS`.
+
+    Lyrics-only times are a gap between neighbours, not a syllable. If a clearly
+    louder frame sits just beside the estimate, the punch belongs there. The
+    radius stays inside one syllable so a louder word further along is left alone.
+    """
+    if hop_s <= 0 or len(rms) == 0:
+        return start, end
+    # The loudest frame of a long word is a later syllable. Shifting the whole
+    # span onto it uncovers the onset, which is where the beginning leaks.
+    if end - start > config.SNAP_LONG_SPAN_S:
+        return start, end
+    centre = (start + end) / 2
+    index = round(centre / hop_s)
+    index = min(max(index, 0), len(rms) - 1)
+    radius = max(1, round(config.SNAP_RADIUS_MS / 1000 / hop_s))
+    lo, hi = max(0, index - radius), min(len(rms) - 1, index + radius)
+    peak = lo + int(np.argmax(rms[lo : hi + 1]))
+    if rms[peak] < config.SNAP_PEAK_RATIO * max(float(rms[index]), 1e-8):
+        return start, end
+    new_centre = peak * hop_s
+    half = (end - start) / 2
+    return new_centre - half, new_centre + half
+
+
 def build_window(
     start: float,
     end: float,
@@ -108,6 +139,7 @@ def build_window(
         limit = next_word_start - config.NEXT_WORD_GUARD_MS / 1000
 
     if rms is not None and len(rms):
+        start, end = snap_to_vocal(start, end, rms, hop_s)
         end = max(end, start)
         end = extend_tail(start, end, rms, hop_s, limit=limit)
     else:
@@ -125,6 +157,9 @@ def build_window(
 
     if next_word_start is not None:
         end = min(end, next_word_start)
+    # After the detected span is padded and floored. Moving the start earlier
+    # here is the systematic correction: the clock is late, the end is not.
+    start -= config.CENSOR_LEAD_MS / 1000
     return Window(start=max(0.0, start), end=max(end, start + 1e-4))
 
 

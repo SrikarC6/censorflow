@@ -11,6 +11,7 @@
  * ended up with buttons that stopped responding.
  */
 import { createBoard, pitchFromLocation, TONE_GO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
+import { startMarquee } from './flip-motion.js';
 import { getFont, textCols, wrapText } from './font5x7.js';
 
 /**
@@ -20,27 +21,31 @@ import { getFont, textCols, wrapText } from './font5x7.js';
  * the dots inside. A sign that passed only `tone` came out with a red border and
  * amber letters, which reads as two different opinions rather than one warning.
  */
-function toneInk(tone) {
-  return tone === TONE_PLAIN ? null : tone;
+function toneInk(tone, colours) {
+  return tone === TONE_PLAIN ? null : colours[tone];
 }
 
-/**
- * The largest scale at which `text` wraps into at most `maxLines` lines.
- *
- * `pickScale` in the font module only asks whether the text wraps at all, so it
- * happily returns scale 4 for a line that then needs three rows of display - which
- * is how a subtitle ends up taller than the space left for the button under it.
- */
-function fitText(text, maxCols, maxLines) {
-  for (const scale of SCALES) {
-    const wrapped = wrapText(text, maxCols, scale);
-    if (wrapped !== null && wrapped.split('\n').length <= maxLines) return { scale, text: wrapped };
+/** Signs stay at this size. Growing to fit the window picked scale 3, which overlaps glyphs. */
+export const SIGN_SCALE = 2;
+
+/** Title scrolling across the top. The gap is blank columns between repeats. */
+const BANNER_TEXT = 'CENSORFLOW';
+const BANNER_SCALE = 2;
+const BANNER_GAP = 40;
+
+function bannerRows() {
+  return getFont().rows * BANNER_SCALE + 6;
+}
+
+function laySign(text, maxCols, scale) {
+  const wrapped = wrapText(text, maxCols, scale);
+  if (wrapped !== null) return { scale, text: wrapped };
+  if (scale !== 1) {
+    const smaller = wrapText(text, maxCols, 1);
+    if (smaller !== null) return { scale: 1, text: smaller };
   }
-  return { scale: 1, text: wrapText(text, maxCols, 1) ?? String(text) };
+  return { scale: 1, text: String(text) };
 }
-
-/** The scales a sign may use, largest first. */
-const SCALES = [4, 3, 2, 1];
 
 /**
  * `text` cut to fit `maxCols` at scale 1, with an ellipsis if anything was lost.
@@ -51,7 +56,7 @@ const SCALES = [4, 3, 2, 1];
  */
 function fitLine(text, maxCols) {
   const cost = (value) => textCols(`${value}...`, 1);
-  if (cost(text) <= maxCols) return text;
+  if (textCols(text, 1) <= maxCols) return text;
   let kept = text;
   while (kept.length > 1 && cost(kept) > maxCols) kept = kept.slice(0, -1);
   // A window too narrow for even one letter plus an ellipsis gets the letters.
@@ -71,7 +76,8 @@ function fitLine(text, maxCols) {
  */
 export const NOTICE_ROWS = 13;
 
-const MARGIN = 4;
+export const MARGIN = 4;
+const METER_MIN_COLS = 40;
 
 /**
  * Dots a screen needs before its controls are worth splitting across rows.
@@ -96,6 +102,9 @@ export const state = {
   render: null,
   stopFollowing: null,
   player: null,
+  quality: 'fast',
+  // `present` starts true so the download button does not flash before /api/health.
+  model: { present: true, state: 'idle', pct: 0, message: '' },
 };
 
 export function createUi({ canvas, overlay }) {
@@ -126,17 +135,18 @@ export function createUi({ canvas, overlay }) {
      * and looks like it is not there at all.
      */
     bottom: () => Math.max(0, board.rows - NOTICE_ROWS - 2),
+    /** The first row under the scrolling title. Nothing else may be drawn above it. */
+    origin: () => bannerRows(),
+    /** The first row below the banner plate itself, before the air `origin` adds. */
+    bannerEnd: () => getFont().rows * BANNER_SCALE + 4,
     /**
-     * Is this window too short for a screen's full set of controls?
-     *
-     * `buttonRow` clamps a row that will not fit up above the status line, which
-     * stops a button being drawn where it cannot be clicked - but two rows clamped
-     * onto the same space end up on top of each other, and only the first one drawn
-     * is ever hit. A screen asks this and drops to a single row rather than
-     * stacking controls that cannot all be reached.
+     * Is this window too short for a screen's full set of controls? `buttonRow`
+     * clamps rows above the status line, so two rows clamped onto the same space
+     * overlap and only the first drawn is hit. A screen asks this and drops to a
+     * single row rather than stacking controls that cannot all be reached.
      */
     tight(tall) {
-      return board.rows - NOTICE_ROWS - tall < MIN_USABLE_ROWS;
+      return board.rows - NOTICE_ROWS - bannerRows() - tall < MIN_USABLE_ROWS;
     },
     /**
      * The first row of a block `tall` dots high, centred in the space above the
@@ -144,7 +154,9 @@ export function createUi({ canvas, overlay }) {
      * of the window, which is how a button ends up underneath the notice.
      */
     top(tall) {
-      return Math.max(2, Math.floor((board.rows - NOTICE_ROWS - tall) / 2));
+      const origin = bannerRows();
+      const space = board.rows - NOTICE_ROWS - origin - tall;
+      return origin + Math.max(0, Math.floor(space / 2));
     },
     /**
      * The column that centres a row of buttons, measured from the handles themselves.
@@ -159,48 +171,42 @@ export function createUi({ canvas, overlay }) {
       return Math.max(MARGIN, Math.floor((board.cols - width - spaces) / 2));
     },
     /**
-     * A sign of text, wrapped and scaled to fit the window. Returns the first row
-     * below it.
-     *
-     * `pickScale` answers with a scale *and* the wrapped lines, and the scale alone
-     * is not enough: picking the largest scale at which the text wraps and then
-     * stamping the original string is how a subtitle ends up running off both edges
-     * of the display.
+     * A sign of text at a fixed size, wrapped to the window. Returns the first
+     * row below it. The size does not change with the window.
      */
-    sign(
-      text,
-      { row = 0, scale = null, tone = TONE_PLAIN, centre = true, gap = 2, maxLines = 2 } = {},
-    ) {
+    sign(text, { row = 0, scale = SIGN_SCALE, tone = TONE_PLAIN, centre = true, right = false, gap = 2 } = {}) {
       const maxCols = Math.max(8, board.cols - MARGIN * 2);
-      const fit = scale === null ? fitText(text, maxCols, maxLines) : { scale, text: String(text) };
+      const fit = laySign(text, maxCols, scale);
       const lines = fit.text.split('\n');
       const lineRows = getFont().rows * fit.scale;
-      const width =
-        Math.max(...lines.map((line) => textCols(line, fit.scale)), 1) + 4;
+      const width = Math.max(...lines.map((line) => textCols(line, fit.scale)), 1) + 4;
       const height = lines.length * lineRows + (lines.length - 1) * gap + 4;
-      const col = centre ? Math.max(0, Math.floor((board.cols - width) / 2)) : MARGIN;
-      board.plate({ col, row, cols: width, rows: height, tone, ink: toneInk(tone) });
+      let col = centre ? Math.max(0, Math.floor((board.cols - width) / 2)) : MARGIN;
+      if (right) col = Math.max(0, board.cols - MARGIN - width);
+      board.plate({ col, row, cols: width, rows: height, tone, ink: toneInk(tone, board.colours) });
       lines.forEach((line, index) => {
         board.stampText(line, col + 2, row + 2 + index * (lineRows + gap), {
           scale: fit.scale,
         });
       });
+      helpers.signBox = { col, row, cols: width, rows: height };
       return row + height;
     },
-    /** A sign with a progress bar under it. Returns the row below it. */
+    /** A sign with a progress bar under it, as wide as its caption. Returns the row below it. */
     meter(text, pct, { row = 0, width = null, tone = TONE_PLAIN } = {}) {
-      const span = width ?? Math.min(board.cols - MARGIN * 2, 120);
-      const sign = board.progress({ col: MARGIN, row, cols: span, label: text, pct, tone });
-      return row + sign.rows;
+      const span = width ?? Math.min(board.cols - MARGIN * 2, Math.max(METER_MIN_COLS, textCols(String(text), 1) + 4));
+      return row + board.progress({ col: MARGIN, row, width: span, label: fitLine(String(text), span - 4), pct, tone }).rows;
     },
     /** Buttons already created, laid out left to right from a cursor. */
-    buttonRow(handles, row, { col = MARGIN, gap = 2 } = {}) {
+    buttonRow(handles, row, { col = MARGIN, gap = 2, notice = false } = {}) {
       // A button drawn at or below the notice cannot be clicked, and one drawn past
       // the last row is off the window entirely. Both happen on a short window,
       // where the signs above have already used up the space, so the buttons get
       // the last word: they move up into the gap rather than under the notice.
+      // `notice` lets a caller that has checked the columns share the notice row.
       const height = Math.max(...handles.map((handle) => handle.height));
-      const at = Math.min(row, Math.max(2, helpers.bottom() - height));
+      const floor = notice ? helpers.bottom() + height : helpers.bottom();
+      const at = Math.max(helpers.origin(), Math.min(row, floor - height));
       const width = handles.reduce((total, handle) => total + handle.width, 0);
       // Pulled left far enough that the row still fits, rather than hanging off the
       // right edge where half of it cannot be clicked.
@@ -236,11 +242,11 @@ export function createUi({ canvas, overlay }) {
       // so it is cut to the width the window actually has rather than allowed to
       // run off the edge. Shortening by one character at a time keeps the cut on a
       // glyph boundary, which slicing to a character count would not.
-      const maxCols = Math.max(8, board.cols - 8);
+      const maxCols = Math.max(8, board.cols - MARGIN * 2 - 4);
       const label = fitLine(String(spoken), maxCols);
-      const width = Math.min(board.cols - 2, textCols(label, 1) + 4);
-      board.plate({ col: 1, row, cols: width, rows: height, tone, ink: toneInk(tone) });
-      board.stampText(label, 3, row + 2, { scale: 1 });
+      const width = Math.min(board.cols - MARGIN * 2, textCols(label, 1) + 4);
+      board.plate({ col: MARGIN, row, cols: width, rows: height, tone, ink: toneInk(tone, board.colours) });
+      board.stampText(label, MARGIN + 2, row + 2, { scale: 1 });
       return row;
     },
   };
@@ -282,5 +288,13 @@ export function createUi({ canvas, overlay }) {
     },
     tones: { go: TONE_GO, stop: TONE_STOP, plain: TONE_PLAIN },
   };
+  startMarquee(board, {
+    col: 1,
+    row: 0,
+    cols: () => Math.max(12, board.cols - 2),
+    text: BANNER_TEXT,
+    scale: BANNER_SCALE,
+    gap: BANNER_GAP,
+  });
   return ui;
 }

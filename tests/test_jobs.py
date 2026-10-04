@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import time
 from pathlib import Path
 
@@ -320,6 +321,7 @@ def test_listing_jobs_is_newest_first(store: jobs.JobStore, song: Path) -> None:
 def test_a_friendly_message_survives_an_unknown_exception() -> None:
     assert "PermissionError" not in jobs._friendly(ZeroDivisionError())
     assert isinstance(jobs._friendly(AudioError("bad file")), str)
+    assert "disk is full" in jobs._friendly(OSError(errno.ENOSPC, "No space left on device"))
 
 
 def test_the_preview_pad_is_enough_to_hear_the_word(store: jobs.JobStore, song: Path) -> None:
@@ -330,11 +332,11 @@ def test_the_preview_pad_is_enough_to_hear_the_word(store: jobs.JobStore, song: 
     assert end - start >= config.PREVIEW_PAD_S
 
 
-def test_a_silent_vocal_stem_still_renders(tmp_path: Path, song: Path) -> None:
-    """No vocals at all is not an error; the output is just the mix, unmuted."""
+def test_a_silent_vocal_stem_is_a_friendly_error(tmp_path: Path, song: Path) -> None:
+    """No vocals means there is nothing to censor. Say so, instead of exporting the mix."""
 
     class Silent(FakeBackend):
-        """Separates to true silence and hears nothing, which is a real failure mode."""
+        """Separates to true silence, which is a real failure mode."""
 
         def separate(self, audio_path, stems, quality, on_progress=None):
             return {
@@ -343,19 +345,10 @@ def test_a_silent_vocal_stem_still_renders(tmp_path: Path, song: Path) -> None:
                 )
             }
 
-        def transcribe(self, vocal_path, on_progress=None):
-            return []
-
     store = jobs.JobStore(root=tmp_path / "silent", backend_factory=Silent)
     job = _drain(store, store.create(song))
-    assert job.state is jobs.State.AWAITING_REVIEW
-    assert job.flags == []
-    stats = store.confirm(job)
-    assert stats.window_count == 0
-    assert stats.muted_seconds == 0.0
-    mix, _ = audio_io.read(job.mix_path)
-    out, _ = audio_io.read(job.output_path)
-    assert np.allclose(out, mix, atol=1e-4)
+    assert job.state is jobs.State.ERROR
+    assert job.error and "No vocals" in job.error
 
 
 def test_a_wav_source_works_without_any_tags(tmp_path: Path) -> None:

@@ -1,8 +1,7 @@
-# Words that must NEVER be censored, even if they appear on profanity.txt.
+# Words that must NEVER be censored, even if a spelling of them is listed.
 # One whole token per line. Blank lines and #-comments are ignored.
 #
-# Use this for false positives: a listed word that is common in music, or one you
-# simply do not want silenced.
-#
-# Example:
-# wub
+# A doubled vowel or an -er peel lands on a listed stem. The stem itself stays listed.
+shiite
+cummer
+dicker

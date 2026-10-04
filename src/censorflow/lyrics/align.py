@@ -1,9 +1,11 @@
-"""Snap ASR word times onto the lyric-line clock.
+"""Snap ASR word times onto timed lyrics without stretching a short phrase.
 
-Parakeet is good at *which* tokens were sung and a poor clock for *when*. LRCLIB
-gives line start/end (almost never word-level). Align the two sequences, warp
-each matched line's ASR times onto that line's span, then shift leftover ad-libs
-by the median offset. Lookup failure is a no-op: the transcript is returned as-is.
+Parakeet is the tokeniser. A lyric line is the clock only when it is about as
+long as the singing inside it. Lines that stay on screen across a gap are much
+longer than the phrase; stretching ASR onto those bounds parks the mute in the
+gap. Those phrases keep their ASR times. A single match may slide by at most
+`ALIGN_MAX_SHIFT_S`. Leftover ad-libs take the median offset of the words that
+did move. Lookup failure is a no-op.
 """
 
 from __future__ import annotations
@@ -15,6 +17,13 @@ from collections.abc import Sequence
 from .. import config
 from ..models import LyricLine, Word
 from ..profanity import detect
+from .align_time import (
+    _anchor_to_words,
+    _place_one,
+    _proportional,
+    _warp_span,
+    _with_time,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -192,141 +201,3 @@ def _place_matches(
             _warp_span(words, placed, line, starts, ends, assigned)
         else:
             _place_one(words, placed[0], line, tokens, starts, ends, assigned)
-
-
-def _warp_span(
-    words: list[Word],
-    placed: list[tuple[int, int]],
-    line: LyricLine,
-    starts: list[float],
-    ends: list[float],
-    assigned: list[bool],
-) -> None:
-    first, last = placed[0][1], placed[-1][1]
-    asr0 = words[first].start
-    asr1 = words[last].end
-    asr_dur = asr1 - asr0
-    line_dur = max(line.end - line.start, config.LYRICS_MIN_LINE_S)
-    if asr_dur <= 1e-6:
-        _place_one(words, placed[0], line, detect.tokenise(line.text), starts, ends, assigned)
-        return
-
-    def warp(at: float) -> float:
-        return line.start + (at - asr0) / asr_dur * line_dur
-
-    for word_i, word in enumerate(words):
-        if assigned[word_i]:
-            continue
-        if word.start < asr0 or word.start > asr1:
-            continue
-        starts[word_i] = warp(word.start)
-        ends[word_i] = warp(word.end)
-        assigned[word_i] = True
-
-
-def _place_one(
-    words: list[Word],
-    placed: tuple[int, int],
-    line: LyricLine,
-    tokens: list[str],
-    starts: list[float],
-    ends: list[float],
-    assigned: list[bool],
-) -> None:
-    token_i, word_i = placed
-    if assigned[word_i]:
-        return
-    spans = _proportional(line, tokens) if tokens else []
-    if token_i < len(spans):
-        dest = spans[token_i][1]
-    else:
-        dest = line.start
-    duration = max(words[word_i].end - words[word_i].start, 1e-4)
-    starts[word_i] = dest
-    ends[word_i] = min(dest + duration, line.end if line.end > dest else dest + duration)
-    assigned[word_i] = True
-
-
-def _proportional(line: LyricLine, tokens: list[str]) -> list[tuple[str, float, float]]:
-    span = max(line.end - line.start, config.LYRICS_MIN_LINE_S)
-    weights = [max(len(token), 2) for token in tokens]
-    total = sum(weights) or 1
-    out: list[tuple[str, float, float]] = []
-    cursor = line.start
-    for token, weight in zip(tokens, weights, strict=True):
-        width = min(max(span * weight / total, config.LYRICS_MIN_WORD_S), config.LYRICS_MAX_WORD_S)
-        out.append((token, cursor, cursor + width))
-        cursor += width
-    return out
-
-
-def _anchor_to_words(
-    line: LyricLine,
-    tokens: list[str],
-    words: Sequence[Word],
-    proportional: list[tuple[str, float, float]],
-) -> list[tuple[str, float, float]]:
-    in_line = [word for word in words if word.start < line.end and word.end > line.start]
-    if not in_line:
-        return proportional
-
-    anchors: dict[int, tuple[float, float]] = {}
-    cursor = 0
-    for token_i, token in enumerate(tokens):
-        key = detect.normalise(token)
-        if not key:
-            continue
-        for word_i in range(cursor, len(in_line)):
-            if detect.normalise(in_line[word_i].text) != key:
-                continue
-            word = in_line[word_i]
-            anchors[token_i] = (word.start, word.end)
-            cursor = word_i + 1
-            break
-    if not anchors:
-        return proportional
-    return _fill_holes(tokens, anchors, line)
-
-
-def _fill_holes(
-    tokens: list[str],
-    anchors: dict[int, tuple[float, float]],
-    line: LyricLine,
-) -> list[tuple[str, float, float]]:
-    out: list[tuple[str, float, float]] = [("", 0.0, 0.0)] * len(tokens)
-    for token_i, span in anchors.items():
-        out[token_i] = (tokens[token_i], span[0], span[1])
-
-    index = 0
-    while index < len(tokens):
-        if index in anchors:
-            index += 1
-            continue
-        left = index - 1
-        while left >= 0 and left not in anchors:
-            left -= 1
-        right = index
-        while right < len(tokens) and right not in anchors:
-            right += 1
-        prev_end = anchors[left][1] if left >= 0 else line.start
-        next_start = anchors[right][0] if right < len(tokens) else line.end
-        hole = tokens[index:right]
-        filled = _proportional(
-            LyricLine(text=" ".join(hole), start=prev_end, end=max(next_start, prev_end)),
-            hole,
-        )
-        for offset, span in enumerate(filled):
-            out[index + offset] = span
-        index = right
-    return out
-
-
-def _with_time(word: Word, start: float, end: float) -> Word:
-    start = max(0.0, start)
-    return Word(
-        text=word.text,
-        start=start,
-        end=max(start + 1e-4, end),
-        confidence=word.confidence,
-        source=word.source,
-    )

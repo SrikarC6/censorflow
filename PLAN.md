@@ -41,6 +41,7 @@ pulling JS changes, or the browser will quietly run the previous build.
 - [x] Tests: merge with fake lyric data
 - [x] Provenance reported per flag; job without lyrics still completes
 - [x] Align ASR word times onto the lyric-line clock (`lyrics/align.py`); sequence-align then warp. Lyrics-only misses interpolate. ASR-only ad-libs take the median offset.
+- [x] Do not stretch a short phrase across a long lyric card (`ALIGN_MAX_STRETCH`); snap a window onto a nearby louder vocal frame (`SNAP_RADIUS_MS`)
 
 ## Phase 3 - server and jobs
 
@@ -114,29 +115,29 @@ pulling JS changes, or the browser will quietly run the previous build.
     on the result screen with nothing injected, and DOWNLOAD writes a 9,004,583-byte
     `..._clean.flac` that matches the mix to 1.19e-07 outside the windows and differs by up to
     0.81 inside them
-- [ ] 4d: Stems screen (skeleton only) + `docs/STEMS_TODO.md`
+- [x] 4d: Stems screen (skeleton only) + `docs/STEMS_TODO.md`
   - the five stem routes already return 501, so this is the screen and the checklist
   - the UI-element cleanup the user asked for after 4c ("fix up the UI elements") lands here or
     just before it
 
 ## Phase 5 - hardening and docs
 
-- [ ] **A JavaScript test harness** (a DOM stub driven by `node`) so `flipdisc.js` and the screens
+- [x] **A JavaScript test harness** (a DOM stub driven by `node`) so `flipdisc.js` and the screens
       are executed, not only asserted on as text. Highest-value item on this list: three separate
       bugs got through because nothing ever ran the client code
-- [ ] First-run model download progress in the UI (today it only says the model is missing)
-- [ ] `README.md` (install, run, dev flags, layout, troubleshooting) - required before anyone
+- [x] First-run model download progress in the UI (today it only says the model is missing)
+- [x] `README.md` (install, run, dev flags, layout, troubleshooting) - required before anyone
       else can run this
-- [ ] Clean clone: `uv sync && uv run censorflow serve` with no `models/` present
-- [ ] A timeout on the worker subprocesses in `compute/local.py`; a hung stage currently hangs the
+- [x] Clean clone: `uv sync && uv run censorflow serve` with no `models/` present
+- [x] A timeout on the worker subprocesses in `compute/local.py`; a hung stage currently hangs the
       server with no way out
-- [ ] Persist `JobStore`, or say plainly in the UI that a server restart loses in-flight jobs
-- [ ] Friendly errors for the cases not yet covered: unreadable file, no vocals in the track, disk
+- [x] Persist `JobStore`, or say plainly in the UI that a server restart loses in-flight jobs
+- [x] Friendly errors for the cases not yet covered: unreadable file, no vocals in the track, disk
       full, model missing
-- [ ] Offer Fast/Pro quality on the Mode screen instead of hardcoding `quality: 'fast'`
-- [ ] Break up the oversized files: `flipdisc.js` (~700 lines), `review.js` (~430), `app.js` (401),
+- [x] Offer Fast/Pro quality on the Mode screen instead of hardcoding `quality: 'fast'`
+- [x] Break up the oversized files: `flipdisc.js` (~700 lines), `review.js` (~430), `app.js` (401),
       `font5x7.js` (~435). `AGENTS.md` asks for roughly 300
-- [ ] Re-read `AGENTS.md`, confirm every non-negotiable rule is met and tested
+- [x] Re-read `AGENTS.md`, confirm every non-negotiable rule is met and tested
 
 ## Phase 6 - stem mode, for real
 

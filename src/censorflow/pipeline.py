@@ -19,6 +19,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from . import audio_io, config, lyrics
 from .censor import render as render_mod
 from .censor import windows as win
@@ -110,6 +112,7 @@ def run_censor(
     if vocals_path is None:
         raise audio_io.AudioError("The separation stage produced no vocal stem.")
     _assert_stem_lengths(mix_path, stems)
+    _assert_vocals_present(vocals_path)
 
     _stage(on_stage, "transcribing")
     _report(on_progress, 72.0, "reading the vocal stem")
@@ -173,9 +176,16 @@ def _render(result: PipelineResult, output_path: Path, export_format: str) -> re
         result.censor_spans(),
         output_path,
         export_format=export_format,
+        tags_from=_original_audio(result.job_dir),
     )
     logger.info("render took %.1fs", time.perf_counter() - started)
     return stats
+
+
+def _original_audio(job_dir: Path) -> Path | None:
+    """The untouched upload in a job directory, if this job kept one."""
+    matches = sorted(Path(job_dir).glob("original.*"))
+    return matches[0] if matches else None
 
 
 def _output_path(
@@ -195,6 +205,16 @@ def _output_path(
         name = source.stem
     name = safe_filename(name)
     return out_dir / f"{name}_clean.{export_format.lstrip('.').lower()}"
+
+
+def _assert_vocals_present(vocals_path: Path) -> None:
+    """A silent vocal stem means there is nothing to censor."""
+    audio, _rate = audio_io.read(vocals_path)
+    rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
+    if rms < config.VOCAL_MIN_RMS:
+        raise audio_io.AudioError(
+            "No vocals were found in this track, so there is nothing to censor."
+        )
 
 
 def _assert_stem_lengths(mix_path: Path, stems: dict[str, Path]) -> None:

@@ -1,10 +1,6 @@
 """Profanity detection over a word list.
 
-The list is DATA (`data/profanity*.txt`), never code. Matching is whole-token only, so
-"class" is never flagged for containing a shorter word; normalisation handles the shapes
-singing and tagging actually produce: elongated letters, symbol masking, inflections.
-
-Unit tests use a test-only list of innocuous placeholder words, never real profanity.
+The list is DATA (`data/profanity*.txt`), never code. Matching is whole-token only.
 """
 
 from __future__ import annotations
@@ -45,14 +41,7 @@ def _strip_accents(text: str) -> str:
 
 
 def _collapse_runs(text: str, min_repeats: int, keep: int = 1) -> str:
-    """Rewrite runs of a repeated character down to `keep` copies.
-
-    `min_repeats` is the shortest run worth rewriting; shorter runs are left alone
-    because collapsing them turns one real word into another. So with `min_repeats=3`,
-    "fuuuuck" becomes "fuck" while the doubled s in "ass" survives. `keep=2` and a higher
-    `min_repeats` answers the opposite question: is a long run one stretched letter or a
-    genuinely doubled one? "wbbbble" can be "wibble".
-    """
+    """Rewrite a run of `min_repeats` or more identical characters down to `keep` copies."""
     out: list[str] = []
     i = 0
     while i < len(text):
@@ -68,8 +57,7 @@ def _collapse_runs(text: str, min_repeats: int, keep: int = 1) -> str:
 def _symbol_wildcards(raw: str) -> re.Pattern[str] | None:
     """Regex for a masked token, or None if it has no masking.
 
-    Symbol runs become wildcards of the *same length*, which is what lets "sh*t" match
-    "shit" and "ni**ga" match "nigga" without guessing which letter was hidden.
+    Symbol runs become wildcards of the same length.
     """
     text = _strip_accents(raw).lower()
     if not _SYMBOL_RUN.search(text):
@@ -116,11 +104,11 @@ def load_wordlist(
 
 
 def _fold(text: str) -> str:
-    """Lowercase, de-accented and unpunctuated, without changing any lengths."""
+    """Lowercase, de-accent, and drop punctuation, including apostrophes."""
     if not text:
         return ""
     text = _strip_accents(text).lower()
-    return "".join(c for c in text if c.isalnum() or c == "'")
+    return "".join(c for c in text if c.isalnum())
 
 
 def normalise(text: str) -> str:
@@ -158,28 +146,72 @@ def _run_forms(text: str) -> list[str]:
     return forms[:_MAX_RUN_FORMS]
 
 
-def variants(token: str) -> set[str]:
-    """Candidate list forms for one token: its spellings, plus peeled inflections.
+_SIBILANT_ES = ("ches", "shes", "sses", "xes", "zes")
 
-    Whole-token matching only; these are candidate *keys*, each still looked up in the
-    word list as a complete word. Candidates shorter than three letters are dropped.
+
+def _surface_stems(token: str) -> set[str]:
+    """-ies/-ier and sibilant -es, on the normalised token only.
+
+    Doubled-letter alternates are skipped: "assess" can shrink to "asses".
     """
+    stems: set[str] = set()
+    for ending, cut, tail, least in (
+        ("ies", 3, "y", 5),
+        ("ier", 3, "y", 6),
+        ("iest", 4, "y", 7),
+    ):
+        if len(token) >= least and token.endswith(ending):
+            stems.add(token[:-cut] + tail)
+    for ending in _SIBILANT_ES:
+        if token.endswith(ending) and len(token) - 2 >= 3:
+            stems.add(token[:-2])
+    return stems
+
+
+def _inflection_stems(token: str) -> set[str]:
+    """One peel of -s/-ing/-in/-ed/-er. -ing/-ed also restore a silent e."""
+    stems: set[str] = set()
+    if token.endswith("in") and len(token) - 2 >= 4:
+        stems.add(token[:-2])
+    for suffix in config.PEELABLE_SUFFIXES:
+        if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+            stem = token[: -len(suffix)]
+            stems.add(stem)
+            if suffix in ("ing", "ed") and not stem.endswith("e"):
+                stems.add(stem + "e")
+    return stems
+    stems: set[str] = set()
+    if token.endswith("in") and len(token) - 2 >= 4:
+        stems.add(token[:-2])
+    for suffix in config.PEELABLE_SUFFIXES:
+        if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+            stem = token[: -len(suffix)]
+            stems.add(stem)
+            if suffix in ("ing", "ed") and not stem.endswith("e"):
+                stems.add(stem + "e")
+    return stems
+
+
+def variants(token: str) -> set[str]:
+    """Candidate list forms: spellings plus peeled inflections, whole tokens only."""
     folded = _fold(token)
     token = normalise(folded)
     if not token:
         return set()
     found: set[str] = set()
-    for form in [token, *_run_forms(folded)]:
-        found.add(form)
-        current = form
-        for _ in range(2):  # "snorkings" -> "snorking" -> "snork"
-            for suffix in config.PEELABLE_SUFFIXES:
-                if current.endswith(suffix) and len(current) - len(suffix) >= 3:
-                    current = current[: -len(suffix)]
-                    found.add(current)
-                    break
-            else:
-                break
+    layer: list[str] = []
+    for form in [token, *_run_forms(folded), *_surface_stems(token)]:
+        if form not in found:
+            found.add(form)
+            layer.append(form)
+    for _ in range(2):
+        nxt: list[str] = []
+        for current in layer:
+            for stem in _inflection_stems(current):
+                if stem not in found:
+                    found.add(stem)
+                    nxt.append(stem)
+        layer = nxt
     return {f for f in found if len(f) >= 3}
 
 
@@ -208,22 +240,18 @@ def is_profane(
     profane: frozenset[str],
     allowed: frozenset[str],
 ) -> bool:
-    """True if any whole-token form of `token` is on the list and not allowlisted.
-
-    Every spelling of the token is looked up, so "snorrk" and "w*bble" both reach the
-    entry they stand in for, and an allowlisted entry silences all of its spellings.
-    Every comparison is a full-token match, so a list entry never fires on a substring
-    of a longer word.
-    """
-    if not normalise(token):
+    """True if a whole-token form is listed and none of the token's forms is allowlisted."""
+    forms = variants(token)
+    if forms & allowed:
         return False
-    hits = {form for form in variants(token) if form in profane}
-    if not hits:
-        pattern = _symbol_wildcards(token)
-        if pattern is None:
-            return False
-        hits = {entry for entry in profane if pattern.fullmatch(entry)}
-    return bool(hits) and not (hits & allowed)
+    if forms & profane:
+        return True
+    pattern = _symbol_wildcards(token)
+    if pattern is None:
+        return False
+    if any(pattern.fullmatch(entry) for entry in allowed):
+        return False
+    return any(pattern.fullmatch(entry) for entry in profane)
 
 
 def detect(

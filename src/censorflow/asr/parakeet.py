@@ -57,11 +57,16 @@ class ParakeetTranscriber:
         from parakeet_mlx import from_pretrained
 
         if not (self.dir / "config.json").is_file():
-            raise TranscriptionError(
-                f"The speech recognition model is not downloaded. Expected it at "
-                f"{self.dir}. Run CensorFlow once with an internet connection and it will "
-                "be fetched there."
-            )
+            # The welcome screen downloads this with a progress bar. The headless
+            # path has no screen, so the same fetch runs here and reports through
+            # the transcribe progress line.
+            from .fetch import DownloadError, fetch_asr_model
+
+            _report(on_progress, 2.0, "downloading the speech model")
+            try:
+                fetch_asr_model(on_progress, dest=self.dir, model_id=self.model_id)
+            except DownloadError as exc:
+                raise TranscriptionError(str(exc)) from exc
 
         with tempfile.TemporaryDirectory(prefix="censorflow-asr-") as scratch:
             speech = audio_io.to_mono16k(Path(vocal_path), Path(scratch) / "speech.wav")

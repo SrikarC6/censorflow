@@ -75,6 +75,27 @@ class TestAdditions:
         assert added[0].censor is True
         assert added[0].word_index == -1
 
+    def test_a_late_slot_covers_the_leading_fragments(self) -> None:
+        # The lyric slot starts on syllable 3. The two syllables before it are
+        # short fragments with no gap, so they belong to the same word.
+        words = _words(
+            ("ma", 1.00, 1.08),
+            ("ha", 1.08, 1.16),
+            ("fa", 1.16, 1.24),
+            ("ka", 1.24, 1.32),
+        )
+        flags = merge_flags(words, _lines(("zzapp", 1.16, 1.40)), profane=LIST[0], allowed=LIST[1])
+        assert len(flags) == 1
+        assert flags[0].source == SOURCE_LYRICS
+        assert flags[0].start == pytest.approx(1.00)
+        assert flags[0].end == pytest.approx(1.40)
+
+    def test_a_one_syllable_slot_does_not_cross_a_gap(self) -> None:
+        words = _words(("hi", 1.00, 1.08))
+        flags = merge_flags(words, _lines(("zzapp", 2.00, 2.20)), profane=LIST[0], allowed=LIST[1])
+        assert flags[0].start == pytest.approx(2.00)
+        assert flags[0].end == pytest.approx(2.20)
+
     def test_a_lyrics_flag_lands_inside_its_line(self) -> None:
         lines = _lines(("alpha bravo zzapp charlie", 30.0, 34.0))
         flags = merge_flags([], lines, profane=LIST[0], allowed=LIST[1])

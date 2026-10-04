@@ -15,6 +15,7 @@ from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
+from mutagen.mp4 import MP4
 
 from censorflow import config, jobs, server
 from censorflow.models import SOURCE_LYRICS, TrackInfo
@@ -85,6 +86,22 @@ def test_an_upload_keeps_its_name_so_untagged_files_still_have_a_title(
         payload = client.post("/api/upload", files={"file": (named.name, handle)}).json()
     assert Path(payload["source"]).name == "1-03 BROTHER STONE.m4a"
     assert payload["title"] == "BROTHER STONE"
+
+
+def test_an_upload_reports_the_tagged_title_over_the_filename(
+    client: TestClient, tmp_path: Path, song: Path
+) -> None:
+    """The mode screen shows this string, and a filename is the worse of the two names."""
+    tagged = tmp_path / "03 wrong name.m4a"
+    tagged.write_bytes(song.read_bytes())
+    handle = MP4(str(tagged))
+    handle["\xa9nam"] = ["Zed Song"]
+    handle["\xa9ART"] = ["Alpha, Bravo"]
+    handle.save()
+    with tagged.open("rb") as stream:
+        payload = client.post("/api/upload", files={"file": (tagged.name, stream)}).json()
+    assert payload["title"] == "Zed Song"
+    assert payload["artist"] == "Alpha, Bravo"
 
 
 def test_two_uploads_of_the_same_name_do_not_collide(client: TestClient, song: Path) -> None:
@@ -541,7 +558,25 @@ def test_web_files_are_served_with_no_cache(
 def test_the_web_app_files_are_all_served(tmp_path: Path) -> None:
     store = jobs.JobStore(root=tmp_path / "jobs", backend_factory=FakeBackend)
     with TestClient(server.create_app(store=store)) as test_client:
-        for name in ("index.html", "app.js", "api.js", "ui.js", "flipdisc.js", "font5x7.js", "style.css"):
+        for name in (
+            "index.html",
+            "app.js",
+            "api.js",
+            "ui.js",
+            "flipdisc.js",
+            "font5x7.js",
+            "font-glyphs.js",
+            "screens.js",
+            "session.js",
+            "review.js",
+            "review-dom.js",
+            "stems.js",
+            "model.js",
+            "board-paint.js",
+            "board-controls.js",
+            "board-field.js",
+            "style.css",
+        ):
             response = test_client.get(f"/{name}")
             assert response.status_code == 200, name
             assert response.content, name

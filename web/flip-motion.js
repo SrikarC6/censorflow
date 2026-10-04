@@ -66,6 +66,8 @@ export function runToggles(events, flip, onFrame, done) {
 }
 
 export function prefersReducedMotion() {
+  // No matchMedia (the node test DOM) counts as reduced, so no timer is left running.
+  if (typeof window.matchMedia !== 'function') return true;
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
@@ -190,62 +192,58 @@ export function startIdleFlips(board, { minGapMs = 1400, maxGapMs = 3400 } = {})
 /**
  * A plate whose caption scrolls: text travelling right to left across a sign.
  *
- * This is the one piece of motion the design brief ruled out - "no scrolling
- * marquee" - and it is here because it was asked for by name once the plates
- * existed. It earns its place the way a departure board does: a line of dots
- * wider than its sign has to either scroll or truncate, and scrolling keeps the
- * whole sentence readable instead of its first few words.
+ * Asked for by name after the plates existed. A line wider than its sign has to
+ * scroll or truncate; scrolling keeps the whole sentence readable.
  *
- * How it stays cheap, and why it never shows a seam:
- *   - the caption is laid out once into a plain array of lit cells, left-aligned
- *     in its own space, and never measured again;
- *   - scrolling is an offset into that array, not a re-layout, so a tick is one
- *     comparison per lit cell;
- *   - each cell is offered at two horizontal positions, one repeat apart, and
- *     whichever lands inside the sign is drawn. That is what makes the text
- *     continuous: the strip is treated as periodic, so the moment the offset
- *     passes the end of the caption the next repeat is already in place and
- *     there is nothing to reset to;
- *   - `gap` columns of air separate one repeat from the next, because the two are
- *     the same sentence and without a gap they read as one run-on word.
+ * Cheap, and without a seam: the caption is laid out once; a tick is an offset
+ * into that array; enough copies cover the sign, periodic with `caption + gap`.
+ * A tick paints only the inner caption. The plate is redrawn on the first frame,
+ * on resize, and after a full `redraw`, so the keyed record stays correct.
  *
- * Dots move one column per `stepMs` on a timer rather than on a frame callback:
- * at one column a tick there is nothing to interpolate, and a timer cannot spin
- * a CPU on a machine with nothing else to do.
- *
- * Honours `prefersReducedMotion` by drawing the first screenful and stopping.
- * Returns a stop function.
+ * One column per `stepMs` on a timer, not a frame callback. Honours
+ * `prefersReducedMotion` by drawing the first screenful and stopping.
  */
 export function startMarquee(
   board,
   { col, row, cols, text, scale = 1, font, stepMs = 45, gap = 14, sound = false } = {},
 ) {
   const one = layoutCells(text, scale, font, gap);
-  const visible = cols - 4;
-  if (one.width === 0 || visible <= 0) return () => {};
+  if (one.width === 0) return () => {};
+  // `cols` may be a function so a resize keeps the sign as wide as the window
+  // without restarting the scroll, which would jump the text back to the left.
+  const widthOf = () => (typeof cols === 'function' ? cols() : cols);
+  let platedWidth = 0;
 
-  const interior = { col: col + 2, row: row + 2, cols: visible, rows: one.height };
-  // A whole number of repeats, so offset and offset + span look identical and the
-  // wrap is invisible.
-  const span = one.width * Math.max(1, Math.ceil(visible / one.width));
-
-  function draw(offset) {
-    board.plate({ col, row, cols, rows: one.height + 4, key: 'marquee' });
-    board.fill(interior.col, interior.row, interior.cols, interior.rows, 0);
-    const start = ((offset % span) + span) % span;
+  function draw(offset, forcePlate = false) {
+    const width = widthOf();
+    const visible = width - 4;
+    if (visible <= 0) return;
+    const rows = one.height + 4;
+    if (forcePlate || platedWidth !== width) {
+      board.plate({ col, row, cols: width, rows, key: 'marquee' });
+      platedWidth = width;
+    }
+    board.fill(col + 2, row + 2, visible, one.height, 0);
+    const start = ((offset % one.width) + one.width) % one.width;
+    // One more copy than the sign can show, so a short word still fills a wide
+    // page and the copy sliding off the left is replaced by the one entering.
+    const copies = Math.ceil(visible / one.width) + 1;
     for (const cell of one.cells) {
-      for (let repeat = 0; repeat < 2; repeat += 1) {
+      for (let repeat = 0; repeat < copies; repeat += 1) {
         const x = cell.x + repeat * one.width - start;
-        if (x < 0 || x >= interior.cols) continue;
-        board.cell(interior.col + x, interior.row + cell.y, 1);
+        if (x < 0 || x >= visible) continue;
+        board.cell(col + 2 + x, row + 2 + cell.y, 1);
       }
     }
   }
 
   let offset = 0;
-  draw(offset);
+  // A full redraw clears the cell buffer. Drawing from the painter puts the
+  // current frame back in the same pass, so the banner does not blink out.
+  const detach = board.onDraw(() => draw(offset, true));
+  draw(offset, true);
 
-  if (prefersReducedMotion()) return () => {};
+  if (prefersReducedMotion()) return () => detach();
 
   let timer = 0;
   let stop = false;
@@ -261,6 +259,7 @@ export function startMarquee(
   return () => {
     stop = true;
     window.clearTimeout(timer);
+    detach();
   };
 }
 

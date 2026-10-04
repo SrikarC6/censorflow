@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import select
 import subprocess
 import sys
 import time
@@ -92,7 +93,13 @@ class LocalBackend:
                 bufsize=1,
                 env=env,
             )
-            data, noise = self._pump(proc, stage, on_progress)
+            try:
+                data, noise = self._pump(proc, stage, on_progress)
+            except ComputeError:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                raise
             code = proc.wait()
 
         elapsed = time.perf_counter() - started
@@ -110,13 +117,38 @@ class LocalBackend:
         return data
 
     def _pump(
-        self, proc: subprocess.Popen[str], stage: str, on_progress: ProgressFn | None
+        self,
+        proc: subprocess.Popen[str],
+        stage: str,
+        on_progress: ProgressFn | None,
+        timeout_s: float = config.WORKER_TIMEOUT_S,
     ) -> tuple[dict[str, Any] | None, list[str]]:
-        """Read protocol lines until EOF, forwarding progress to the caller."""
+        """Read protocol lines until EOF, forwarding progress to the caller.
+
+        `readline` would wait forever on a hung worker. The stage is allowed
+        `timeout_s` of wall time, then it is killed so the server can move on.
+        """
         data: dict[str, Any] | None = None
         noise: list[str] = []
         assert proc.stdout is not None
-        for raw in proc.stdout:
+        deadline = time.monotonic() + timeout_s
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                proc.wait(timeout=5)
+                raise ComputeError(
+                    f"The {stage} stage timed out after {timeout_s:.0f}s and was stopped. "
+                    f"Full details in {self.log_path(stage)}."
+                )
+            ready, _, _ = select.select([proc.stdout], [], [], min(1.0, remaining))
+            if not ready:
+                if proc.poll() is not None:
+                    break
+                continue
+            raw = proc.stdout.readline()
+            if not raw:
+                break
             line = raw.strip()
             if not line:
                 continue
