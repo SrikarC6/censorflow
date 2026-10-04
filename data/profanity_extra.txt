@@ -1,0 +1,8 @@
+# Words to censor, in addition to profanity.txt. One whole token per line.
+#
+# Kept separate from the shipped list so user edits never collide with updates.
+# Matching is whole-token only after normalisation, so an entry here never fires on
+# part of a longer word. Blank lines and #-comments are ignored.
+#
+# Example:
+# wubwub

@@ -7,25 +7,25 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 - [x] Verify `ffmpeg -version`, `uv --version`, Apple Silicon, RAM
 - [x] `git init` (already a repo), `uv init`, folder tree, `.gitignore`
 - [x] Check for `reference/old_version/` (absent - nothing to skim)
-- [ ] Get a 30-60 s vocal-heavy clip into `samples/` from the user
-- [ ] Spike A: separation (mlx-audio-separator `htdemucs`, fallback demucs CLI)
-- [ ] Spike B: ASR (`parakeet-mlx`, tdt-0.6b-v2 vs v3, word timestamps)
-- [ ] Spike C: lyrics (LRCLIB `/api/get`, `syncedlyrics`) - structure only
-- [ ] `docs/SPIKE_RESULTS.md`, `docs/DECISIONS.md`
+- [x] Get a 30-60 s vocal-heavy clip into `samples/` from the user
+- [x] Spike A: separation (mlx-audio-separator `htdemucs`, fallback demucs CLI)
+- [x] Spike B: ASR (`parakeet-mlx` tdt-0.6b-v3; v2 comparison skipped, see `docs/SPIKE_B_ASR.md`)
+- [x] Spike C: lyrics (LRCLIB `/api/get`, `syncedlyrics`) - structure only
+- [x] `docs/SPIKE_RESULTS.md`, `docs/DECISIONS.md`
 
 ## Phase 1 - core pipeline and CLI
 
-- [ ] `config.py` (all named constants)
-- [ ] `audio_io.py` (ffprobe validate, decode to 44.1k stereo f32, encode, clip)
-- [ ] `compute/base.py`, `local.py`, `remote.py` stub
-- [ ] `workers/` one-shot JSON-line entry points
-- [ ] `separation/` interface + Demucs backend
-- [ ] `asr/` interface + parakeet-mlx backend
-- [ ] `profanity/detect.py` + `data/` wordlists
-- [ ] `censor/windows.py`, `censor/render.py`
-- [ ] `cli.py` with `censor` (+ `--auto`, `--clip-seconds`)
-- [ ] Tests: subtraction, windows, detection, format
-- [ ] `uv run pytest -q` passes; headless run produces `_clean.flac`
+- [x] `config.py` (all named constants)
+- [x] `audio_io.py` (ffprobe validate, decode to 44.1k stereo f32, encode, clip)
+- [x] `compute/base.py`, `local.py`, `remote.py` stub
+- [x] `workers/` one-shot JSON-line entry points
+- [x] `separation/` interface + Demucs backend
+- [x] `asr/` interface + parakeet-mlx backend
+- [x] `profanity/detect.py` + `data/` wordlists
+- [x] `censor/windows.py`, `censor/render.py`
+- [x] `cli.py` with `censor` (+ `--auto`, `--clip-seconds`)
+- [x] Tests: subtraction, windows, detection, format
+- [x] `uv run pytest -q` passes; headless run produces `_clean.flac`
 
 ## Phase 2 - metadata, lyrics, merging
 

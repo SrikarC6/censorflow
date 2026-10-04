@@ -1,0 +1,8 @@
+# Words that must NEVER be censored, even if they appear on profanity.txt.
+# One whole token per line. Blank lines and #-comments are ignored.
+#
+# Use this for false positives: a listed word that is common in music, or one you
+# simply do not want silenced.
+#
+# Example:
+# wub

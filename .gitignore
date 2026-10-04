@@ -227,8 +227,10 @@ samples/
 # Job scratch and worker stderr logs
 logs/
 out/
-# CensorFlow home (jobs, lyrics cache)
+# CensorFlow home (jobs, lyrics cache, logs)
 .censorflow/
+# Downloaded model weights (~2.3 GB); fetched on first run, never committed
+models/
 # Ignored copies of fetched lyrics (local cross-check only)
 data/lyrics_cache/
 # Test / spike scratch
