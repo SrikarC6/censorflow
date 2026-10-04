@@ -32,7 +32,7 @@ export const OFF = 0;
 export const ON = 1;
 export const INV = 2;
 export const DIM = 3;
-/** Orange disc used for the welcome-scene basketball. */
+/** Orange disc used for the welcome-scene thrown word. */
 export const ORANGE = 4;
 
 /** The semantic tones a plate border can carry. */

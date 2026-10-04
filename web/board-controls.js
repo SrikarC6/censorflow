@@ -118,9 +118,14 @@ export function attachControls(env, surface) {
     }
 
     handle.draw = draw;
-    /** Paint this button only. A pass already in flight will draw it in a moment. */
+    /**
+     * Paint this button only. A pass already in flight will draw it in a moment.
+     * A hidden button never paints: the board's hover can still point at it after
+     * a screen change, and un-hovering it would stamp it onto the next screen.
+     */
     handle.repaint = () => {
       if (env.drawing) return;
+      if (!handle.shown) return;
       handle.draw();
     };
     handle.contains = (col, row) =>

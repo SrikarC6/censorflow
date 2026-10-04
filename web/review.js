@@ -6,8 +6,9 @@
  */
 import * as api from './api.js';
 import { TONE_GO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
+import { textCols } from './font5x7.js';
 import { createReviewDom } from './review-dom.js';
-import { NOTICE_ROWS, state } from './ui.js';
+import { MARGIN, state } from './ui.js';
 
 /**
  * Audio either side of a word when previewing it, in seconds.
@@ -16,6 +17,12 @@ import { NOTICE_ROWS, state } from './ui.js';
  * previewed region; this is only how much the browser asks for.
  */
 const PREVIEW_PAD_S = 1.5;
+
+/** REVIEW and the flag count are set at the bottom buttons' scale, so all four plates match. */
+const HEAD_SCALE = 1;
+
+/** Empty rows above and below the panel: under the top plates, over the buttons. */
+const PANEL_GAP = 3;
 
 /** The fields the server reads from a flag, in the order it validates them. */
 const SENT = ['word_index', 'text', 'start', 'end', 'source', 'confidence', 'approx', 'censor'];
@@ -41,13 +48,14 @@ export function registerReview(ui, { say, startUpload, status }) {
 
   const renderButton = board.button({
     label: 'RENDER',
-    scale: 2,
+    scale: 1,
     tone: TONE_GO,
     onClick: () => submit(),
   });
   const overButton = board.button({
     label: 'START OVER',
     scale: 1,
+    tone: TONE_STOP,
     onClick: () => startUpload(),
   });
 
@@ -150,6 +158,7 @@ export function registerReview(ui, { say, startUpload, status }) {
     // the user has done to it.
     flags = payload.flags.map((flag) => ({ ...flag }));
     flags.sort((a, b) => a.start - b.start);
+    dom.resetTranscript();
     panel = document.createElement('div');
     panel.className = 'review';
     ui.show('review');
@@ -186,18 +195,32 @@ export function registerReview(ui, { say, startUpload, status }) {
     },
     paint(h) {
       const on = flags.filter((flag) => flag.censor).length;
-      let row = h.sign('REVIEW', { row: h.origin(), centre: false });
-      row = h.sign(`${on} OF ${flags.length} FLAGS ON`, { row: row + 2, centre: false });
+      let row = h.sign('REVIEW', { row: h.origin(), centre: false, scale: HEAD_SCALE });
+      const plate = h.signBox;
+      const count = `${on} OF ${flags.length} FLAGS ON`;
+      // The count shares the REVIEW row on the right unless the two plates would
+      // touch, in which case it drops underneath rather than overlapping.
+      const fits = plate.col + plate.cols + textCols(count, HEAD_SCALE) + 8 <= h.cols();
+      const below = h.sign(count, {
+        row: fits ? plate.row : row + 2,
+        centre: false,
+        right: fits,
+        scale: HEAD_SCALE,
+      });
+      if (!fits) row = below;
+      // The buttons sit bottom right, on the status line when the whole status fits
+      // beside them, otherwise on the row above it so neither is cut or covered.
+      const width = renderButton.width + overButton.width + 2;
+      const col = h.cols() - MARGIN - width;
+      const shared = MARGIN + textCols(String(status().text), 1) + 6 <= col;
+      const buttonRow = shared ? h.bottom() : h.bottom() - renderButton.height - 1;
       // The panel is sized to the gap between the last sign and the buttons, so the
       // dense HTML can never sit on top of the board's own hit-tested buttons.
-      const buttonRow = h.rows() - NOTICE_ROWS - renderButton.height - 3;
       if (panel) {
-        panel.style.top = `${(row + 4) * h.pitch()}px`;
-        panel.style.bottom = `${(h.rows() - buttonRow) * h.pitch()}px`;
+        panel.style.top = `${(row + PANEL_GAP) * h.pitch()}px`;
+        panel.style.bottom = `${(h.rows() - buttonRow + PANEL_GAP) * h.pitch()}px`;
       }
-      h.buttonRow([renderButton, overButton], buttonRow, {
-        col: h.centre([renderButton, overButton]),
-      });
+      h.buttonRow([renderButton, overButton], buttonRow, { col, notice: shared });
       h.notice(status().text, status().tone);
     },
   });

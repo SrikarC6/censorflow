@@ -25,6 +25,8 @@ function stamp(seconds) {
 
 export function createReviewDom(host) {
   const { say, ui } = host;
+  /** Whether the transcript is expanded. Survives panel rebuilds; reset on each open. */
+  let transcriptOpen = false;
   function mini(label, onClick, className = '') {
     const node = document.createElement('button');
     node.type = 'button';
@@ -72,10 +74,22 @@ export function createReviewDom(host) {
    *
    * A word the server flagged is marked; clicking it switches censoring off.
    * A word it did not flag gets a new flag, timed from the word itself.
+   * Collapsed by default so the table of flags gets the room.
    */
   function buildTranscript() {
+    const box = document.createElement('details');
+    box.className = 'transcript-box';
+    box.open = transcriptOpen;
+    const summary = document.createElement('summary');
+    const label = () => (box.open ? 'hide transcript ▾' : 'show transcript ▸');
+    summary.textContent = label();
+    box.addEventListener('toggle', () => {
+      transcriptOpen = box.open;
+      summary.textContent = label();
+    });
     const wrap = document.createElement('div');
     wrap.className = 'transcript';
+    box.append(summary, wrap);
     const byIndex = new Map();
     for (const flag of host.flags) if (flag.word_index >= 0) byIndex.set(flag.word_index, flag);
     host.data.words.forEach((word, index) => {
@@ -93,7 +107,7 @@ export function createReviewDom(host) {
       span.addEventListener('click', () => toggleWord(index, flag));
       wrap.append(span, document.createTextNode(' '));
     });
-    return wrap;
+    return box;
   }
 
   /** Toggle a word: an existing flag switches, an unflagged word gains one. */
@@ -245,5 +259,10 @@ export function createReviewDom(host) {
     return table;
   }
 
-  return { buildHead, buildTranscript, buildTable };
+  /** Collapse the transcript, so every review starts with the table getting the room. */
+  function resetTranscript() {
+    transcriptOpen = false;
+  }
+
+  return { buildHead, buildTranscript, buildTable, resetTranscript };
 }

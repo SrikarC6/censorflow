@@ -50,7 +50,7 @@ const actions = {};
 // --- buttons -----------------------------------------------------------------
 // Created once, placed by the painters. See the note at the top of ui.js.
 const chooseFile = board.button({
-  label: 'CHOOSE A SONG',
+  label: 'UPLOAD A SONG',
   scale: 2,
   tone: TONE_GO,
   onClick: () => fileInput.click(),

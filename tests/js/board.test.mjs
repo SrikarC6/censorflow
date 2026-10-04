@@ -63,7 +63,7 @@ const appUi = globalThis.window.__ui;
 const liveBoard = globalThis.window.__board;
 assert.equal(appUi.screen, 'welcome');
 const welcome = shown();
-assert.ok(welcome.includes('CHOOSE A SONG'), `welcome buttons: ${welcome}`);
+assert.ok(welcome.includes('UPLOAD A SONG'), `welcome buttons: ${welcome}`);
 assert.ok(welcome.includes('GET SPEECH MODEL'), `welcome buttons: ${welcome}`);
 
 appUi.show('mode');

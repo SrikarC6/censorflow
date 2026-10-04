@@ -246,7 +246,8 @@ def test_a_button_row_is_clamped_above_the_status_line() -> None:
     assert "bottom: () => Math.max(0, board.rows - NOTICE_ROWS - 2)" in ui
     body = ui.split("buttonRow(handles, row", 1)[1].split("\n    },", 1)[0]
     # The clamp has to be on the row that is placed, not on the cursor.
-    assert "const at = Math.max(helpers.origin(), Math.min(row, helpers.bottom() - height));" in body
+    assert "const floor = notice ? helpers.bottom() + height : helpers.bottom();" in body
+    assert "const at = Math.max(helpers.origin(), Math.min(row, floor - height));" in body
     assert "handle.place(cursor, at)" in body
 
 
@@ -262,11 +263,15 @@ def test_buttons_are_centred_from_their_own_width_and_not_guessed() -> None:
 
 
 def test_every_button_row_is_centred_through_the_helper() -> None:
-    for name in ("screens.js", "review.js", "stems.js"):
+    for name in ("screens.js", "stems.js"):
         calls = re.findall(r"h\.buttonRow\(.*?\);", _read(name), re.DOTALL)
         assert calls, f"{name} places no button rows"
         for call in calls:
             assert "h.centre(" in call, f"{name}: {call}"
+    # Review right-aligns its buttons, still measured from the handles' own widths.
+    review = _read("review.js")
+    assert "const width = renderButton.width + overButton.width + 2;" in review
+    assert "const col = h.cols() - MARGIN - width;" in review
 
 
 def test_a_row_too_wide_for_the_window_says_so_rather_than_looking_dead() -> None:
@@ -454,6 +459,9 @@ def test_hovering_a_button_does_not_repaint_the_whole_board() -> None:
     body = controls.split("handle.repaint =", 1)[1]
     assert "if (env.drawing) return;" in body
     assert "handle.draw();" in body
+    # The board keeps pointing at the last hovered button across a screen change,
+    # so un-hovering CENSOR stamped it onto the processing screen.
+    assert body.index("if (!handle.shown) return;") < body.index("handle.draw();")
     paint = _read("board-paint.js")
     plate = paint.split("function plate(", 1)[1].split("function panelAt", 1)[0]
     assert "other.col === col" in plate
@@ -576,6 +584,20 @@ def test_the_review_screen_is_asked_for_and_shown_from_app_js() -> None:
     assert _flow().count("review.open(") >= 2
 
 
+def test_the_transcript_starts_collapsed_and_remembers_the_choice() -> None:
+    dom = _read("review-dom.js")
+    body = dom.split("function buildTranscript()", 1)[1].split("\n  }", 1)[0]
+    # A native toggle: keyboard-reachable, no animation, and the table gets the room.
+    assert "let transcriptOpen = false;" in dom
+    assert "document.createElement('details')" in body
+    assert "box.open = transcriptOpen;" in body
+    assert "transcriptOpen = box.open;" in body
+    assert "localStorage" not in dom and "sessionStorage" not in dom
+    # Every review opens collapsed, even after the last one was expanded.
+    assert "transcriptOpen = false;" in dom.split("function resetTranscript()", 1)[1]
+    assert "dom.resetTranscript();" in _read("review.js").split("async function open(id)", 1)[1]
+
+
 def test_the_transcript_can_add_a_missed_flag_by_clicking_a_word() -> None:
     review = _review()
     # Every word is a button, so a word the model did not hear is one click away
@@ -659,9 +681,17 @@ def test_the_panel_is_sized_to_the_gap_between_the_signs_and_the_buttons() -> No
     # the title. Both edges are measured in whole dots from the board's own geometry.
     review = _read("review.js")
     body = review.split("ui.register('review'", 1)[1].split("\n  });", 1)[0]
-    assert "const buttonRow = h.rows() - NOTICE_ROWS - renderButton.height - 3;" in body
-    assert "panel.style.top = `${(row + 4) * h.pitch()}px`;" in body
-    assert "panel.style.bottom" in body
+    # The buttons share the status row only when the whole status fits beside them.
+    assert "const buttonRow = shared ? h.bottom() : h.bottom() - renderButton.height - 1;" in body
+    assert "notice: shared" in body
+    assert "notice ? helpers.bottom() + height : helpers.bottom()" in _read("ui.js")
+    # One gap above and below the panel, so the space around it is even.
+    assert "panel.style.top = `${(row + PANEL_GAP) * h.pitch()}px`;" in body
+    assert "panel.style.bottom = `${(h.rows() - buttonRow + PANEL_GAP) * h.pitch()}px`;" in body
+    assert "right: fits" in body, "the count sign shares the REVIEW row on the right"
+    # The top plates are set at the bottom buttons' scale.
+    assert "const HEAD_SCALE = 1;" in review
+    assert body.count("scale: HEAD_SCALE") == 2
 
 
 def test_the_board_buttons_of_the_review_screen_are_made_once() -> None:

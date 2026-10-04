@@ -30,12 +30,12 @@ export function registerFlow(ui, controls) {
 /** How tall each screen's block is, in dots, so `top` can centre it. */
 const BLOCK = { welcome: 58, mode: 96, awaiting: 120, result: 150, failed: 90 };
 
-/** Empty rows between the banner, the slogan, and Choose a Song. */
+/** Empty rows between the banner, the slogan, and Upload a Song. */
 const WELCOME_GAP = 8;
 
 ui.register('welcome', {
   paint(h) {
-    let row = h.sign('SILENCE OF THE SWEARS', { row: h.bannerEnd() + WELCOME_GAP });
+    let row = h.sign('SILENCE SWEARS IN SONGS', { row: h.bannerEnd() + WELCOME_GAP });
     h.buttonRow([chooseFile], row + WELCOME_GAP, { col: h.centre([chooseFile]) });
     if (!h.tight(BLOCK.welcome) && state.model && state.model.present === false) {
       const below = row + WELCOME_GAP + chooseFile.height + 3;
@@ -48,7 +48,7 @@ ui.register('welcome', {
       }
     }
     // The format hint normally; a real reason, if the install is not ready.
-    h.notice(status.text || 'MP3 M4A FLAC WAV OGG OPUS AIFF - OR DROP A FILE ANYWHERE', status.tone);
+    h.notice(status.text || 'MP3 M4A FLAC WAV OGG OPUS AIFF', status.tone);
     showWelcome(h.signBox, {
       col: chooseFile.col,
       row: chooseFile.row,

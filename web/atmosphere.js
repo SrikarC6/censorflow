@@ -1,8 +1,8 @@
 /**
- * A rectangular glow on the banner, the slogan and Choose a Song.
+ * A rectangular glow on the banner, the slogan and Upload a Song.
  *
  * The glow is an HTML box the same size as each plate. Banner and slogan stay
- * still. Choose a Song's green glow pulses in CSS, so the dot grid is not redrawn.
+ * still. Upload a Song's green glow pulses in CSS, so the dot grid is not redrawn.
  */
 import { getFont } from './font5x7.js';
 

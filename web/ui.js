@@ -26,7 +26,7 @@ function toneInk(tone, colours) {
 }
 
 /** Signs stay at this size. Growing to fit the window picked scale 3, which overlaps glyphs. */
-const SIGN_SCALE = 2;
+export const SIGN_SCALE = 2;
 
 /** Title scrolling across the top. The gap is blank columns between repeats. */
 const BANNER_TEXT = 'CENSORFLOW';
@@ -56,7 +56,7 @@ function laySign(text, maxCols, scale) {
  */
 function fitLine(text, maxCols) {
   const cost = (value) => textCols(`${value}...`, 1);
-  if (cost(text) <= maxCols) return text;
+  if (textCols(text, 1) <= maxCols) return text;
   let kept = text;
   while (kept.length > 1 && cost(kept) > maxCols) kept = kept.slice(0, -1);
   // A window too narrow for even one letter plus an ellipsis gets the letters.
@@ -76,7 +76,8 @@ function fitLine(text, maxCols) {
  */
 export const NOTICE_ROWS = 13;
 
-const MARGIN = 4;
+export const MARGIN = 4;
+const METER_MIN_COLS = 40;
 
 /**
  * Dots a screen needs before its controls are worth splitting across rows.
@@ -134,19 +135,16 @@ export function createUi({ canvas, overlay }) {
      * and looks like it is not there at all.
      */
     bottom: () => Math.max(0, board.rows - NOTICE_ROWS - 2),
-    /**
-     * Is this window too short for a screen's full set of controls?
-     *
-     * `buttonRow` clamps a row that will not fit up above the status line, which
-     * stops a button being drawn where it cannot be clicked - but two rows clamped
-     * onto the same space end up on top of each other, and only the first one drawn
-     * is ever hit. A screen asks this and drops to a single row rather than
-     * stacking controls that cannot all be reached.
-     */
     /** The first row under the scrolling title. Nothing else may be drawn above it. */
     origin: () => bannerRows(),
     /** The first row below the banner plate itself, before the air `origin` adds. */
     bannerEnd: () => getFont().rows * BANNER_SCALE + 4,
+    /**
+     * Is this window too short for a screen's full set of controls? `buttonRow`
+     * clamps rows above the status line, so two rows clamped onto the same space
+     * overlap and only the first drawn is hit. A screen asks this and drops to a
+     * single row rather than stacking controls that cannot all be reached.
+     */
     tight(tall) {
       return board.rows - NOTICE_ROWS - bannerRows() - tall < MIN_USABLE_ROWS;
     },
@@ -176,15 +174,15 @@ export function createUi({ canvas, overlay }) {
      * A sign of text at a fixed size, wrapped to the window. Returns the first
      * row below it. The size does not change with the window.
      */
-    sign(text, { row = 0, scale = SIGN_SCALE, tone = TONE_PLAIN, centre = true, gap = 2 } = {}) {
+    sign(text, { row = 0, scale = SIGN_SCALE, tone = TONE_PLAIN, centre = true, right = false, gap = 2 } = {}) {
       const maxCols = Math.max(8, board.cols - MARGIN * 2);
       const fit = laySign(text, maxCols, scale);
       const lines = fit.text.split('\n');
       const lineRows = getFont().rows * fit.scale;
-      const width =
-        Math.max(...lines.map((line) => textCols(line, fit.scale)), 1) + 4;
+      const width = Math.max(...lines.map((line) => textCols(line, fit.scale)), 1) + 4;
       const height = lines.length * lineRows + (lines.length - 1) * gap + 4;
-      const col = centre ? Math.max(0, Math.floor((board.cols - width) / 2)) : MARGIN;
+      let col = centre ? Math.max(0, Math.floor((board.cols - width) / 2)) : MARGIN;
+      if (right) col = Math.max(0, board.cols - MARGIN - width);
       board.plate({ col, row, cols: width, rows: height, tone, ink: toneInk(tone, board.colours) });
       lines.forEach((line, index) => {
         board.stampText(line, col + 2, row + 2 + index * (lineRows + gap), {
@@ -194,20 +192,21 @@ export function createUi({ canvas, overlay }) {
       helpers.signBox = { col, row, cols: width, rows: height };
       return row + height;
     },
-    /** A sign with a progress bar under it. Returns the row below it. */
+    /** A sign with a progress bar under it, as wide as its caption. Returns the row below it. */
     meter(text, pct, { row = 0, width = null, tone = TONE_PLAIN } = {}) {
-      const span = width ?? Math.min(board.cols - MARGIN * 2, 120);
-      const sign = board.progress({ col: MARGIN, row, width: span, label: text, pct, tone });
-      return row + sign.rows;
+      const span = width ?? Math.min(board.cols - MARGIN * 2, Math.max(METER_MIN_COLS, textCols(String(text), 1) + 4));
+      return row + board.progress({ col: MARGIN, row, width: span, label: fitLine(String(text), span - 4), pct, tone }).rows;
     },
     /** Buttons already created, laid out left to right from a cursor. */
-    buttonRow(handles, row, { col = MARGIN, gap = 2 } = {}) {
+    buttonRow(handles, row, { col = MARGIN, gap = 2, notice = false } = {}) {
       // A button drawn at or below the notice cannot be clicked, and one drawn past
       // the last row is off the window entirely. Both happen on a short window,
       // where the signs above have already used up the space, so the buttons get
       // the last word: they move up into the gap rather than under the notice.
+      // `notice` lets a caller that has checked the columns share the notice row.
       const height = Math.max(...handles.map((handle) => handle.height));
-      const at = Math.max(helpers.origin(), Math.min(row, helpers.bottom() - height));
+      const floor = notice ? helpers.bottom() + height : helpers.bottom();
+      const at = Math.max(helpers.origin(), Math.min(row, floor - height));
       const width = handles.reduce((total, handle) => total + handle.width, 0);
       // Pulled left far enough that the row still fits, rather than hanging off the
       // right edge where half of it cannot be clicked.
@@ -243,11 +242,11 @@ export function createUi({ canvas, overlay }) {
       // so it is cut to the width the window actually has rather than allowed to
       // run off the edge. Shortening by one character at a time keeps the cut on a
       // glyph boundary, which slicing to a character count would not.
-      const maxCols = Math.max(8, board.cols - 8);
+      const maxCols = Math.max(8, board.cols - MARGIN * 2 - 4);
       const label = fitLine(String(spoken), maxCols);
-      const width = Math.min(board.cols - 2, textCols(label, 1) + 4);
-      board.plate({ col: 1, row, cols: width, rows: height, tone, ink: toneInk(tone, board.colours) });
-      board.stampText(label, 3, row + 2, { scale: 1 });
+      const width = Math.min(board.cols - MARGIN * 2, textCols(label, 1) + 4);
+      board.plate({ col: MARGIN, row, cols: width, rows: height, tone, ink: toneInk(tone, board.colours) });
+      board.stampText(label, MARGIN + 2, row + 2, { scale: 1 });
       return row;
     },
   };
