@@ -113,6 +113,10 @@ export function outputUrl(id) {
   return `/api/jobs/${id}/output`;
 }
 
+export function originalUrl(id) {
+  return `/api/jobs/${id}/original`;
+}
+
 /**
  * Follow a job's progress. `onEvent` gets every server event; the returned
  * function closes the stream.

@@ -220,7 +220,11 @@ function playSource(kind) {
   if (!player || !state.job) return;
   const wasPlaying = !player.paused;
   const at = player.currentTime || 0;
-  player.src = kind === 'original' ? state.objectUrl : api.outputUrl(state.job.id);
+  // The browser's own copy of the upload is free, but it only exists while this page has
+  // been alive. After a reload the server still has the untouched file, so fall back to it
+  // rather than handing the element a null source that would look like a working player.
+  const original = state.objectUrl || api.originalUrl(state.job.id);
+  player.src = kind === 'original' ? original : api.outputUrl(state.job.id);
   player.addEventListener(
     'loadedmetadata',
     () => {
@@ -333,12 +337,14 @@ function onJobEvent(event) {
 
 function saveOutput() {
   if (!state.job) return;
+  const name = state.render?.filename;
   const anchor = document.createElement('a');
   anchor.href = api.outputUrl(state.job.id);
-  anchor.download = '';
+  anchor.download = name || '';
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
+  say(name ? `SAVED ${name}` : 'SAVED');
 }
 
 // --- a song dropped anywhere on the page -------------------------------------
@@ -359,8 +365,8 @@ window.addEventListener('error', (event) => say(String(event.message), TONE_STOP
  *
  * A render on a laptop takes minutes, and a refresh or a closed tab should not
  * throw that away: the job lives in the server's own store, so the page can pick
- * the stream back up. A job that has already finished is not resumed - the render
- * numbers only exist in the review response, which is phase 4c's business.
+ * the stream back up. A job that has already finished rejoins the result screen,
+ * because the figures it needs now travel in the job's own snapshot.
  */
 async function resume(id) {
   try {
@@ -371,12 +377,25 @@ async function resume(id) {
     return;
   }
   const state_ = state.snapshot.state;
-  if (state_ === 'done' || state_ === 'error') {
-    say('that job has already finished - start again', TONE_STOP);
-    ui.show('welcome');
+  if (state_ === 'error') {
+    say(state.snapshot.error || 'that job failed - start again', TONE_STOP);
+    ui.show('failed');
     return;
   }
   state.job = { id };
+  if (state_ === 'done') {
+    // The render already happened, so the file is on disk. Refusing to rejoin here would
+    // throw the download away over a refresh, which is the one thing the user came back for.
+    state.render = state.snapshot.render || state.render;
+    if (!state.render) {
+      say('that job has finished but its figures are gone - start again', TONE_STOP);
+      ui.show('welcome');
+      return;
+    }
+    say('this song is already rendered - here it is again');
+    ui.show('result');
+    return;
+  }
   if (state_ === 'awaiting_review') {
     say('every flag is waiting for you');
     review.open(id);

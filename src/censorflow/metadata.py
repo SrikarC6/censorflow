@@ -75,6 +75,17 @@ def primary_artist(artist: str | None) -> str | None:
     return candidates[0] if candidates else None
 
 
+def safe_filename(name: str) -> str:
+    """A name that is safe to hand to a filesystem, a shell or a browser download.
+
+    Lives here rather than in `pipeline.py` because two callers need it and they must agree:
+    the CLI writes `<name>_clean.flac`, and the server names the download it serves. Never
+    empty, because an empty download name is worse than a dull one.
+    """
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
+    return cleaned or "output"
+
+
 def title_from_filename(path: Path) -> str | None:
     """Guess a title from a filename by dropping any leading track number.
 

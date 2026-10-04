@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -24,7 +23,7 @@ from . import audio_io, config, lyrics
 from .censor import render as render_mod
 from .censor import windows as win
 from .compute.base import ComputeBackend
-from .metadata import title_from_filename
+from .metadata import safe_filename, title_from_filename
 from .models import Flag, LyricLine, ProgressFn, StageFn, TrackInfo, Word
 from .profanity import detect
 
@@ -193,14 +192,8 @@ def _output_path(
     name = (track.title if track and track.title else None) or title_from_filename(source)
     if not name:
         name = source.stem
-    name = _safe_filename(name)
+    name = safe_filename(name)
     return out_dir / f"{name}_clean.{export_format.lstrip('.').lower()}"
-
-
-def _safe_filename(name: str) -> str:
-    """Nothing that would confuse a shell or a filesystem, and never empty."""
-    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
-    return cleaned or "output"
 
 
 def _assert_stem_lengths(mix_path: Path, stems: dict[str, Path]) -> None:

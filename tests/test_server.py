@@ -11,12 +11,14 @@ import dataclasses
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
 
 from censorflow import config, jobs, server
-from censorflow.models import SOURCE_LYRICS
+from censorflow.models import SOURCE_LYRICS, TrackInfo
+from censorflow.server import _media_type
 
 from .conftest import RATE, FakeBackend
 
@@ -174,6 +176,7 @@ def test_an_unknown_job_is_a_404(client: TestClient) -> None:
     assert client.get("/api/jobs/nope").status_code == 404
     assert client.get("/api/jobs/nope/review").status_code == 404
     assert client.get("/api/jobs/nope/output").status_code == 404
+    assert client.get("/api/jobs/nope/original").status_code == 404
 
 
 # --- events ---------------------------------------------------------------------------
@@ -368,6 +371,77 @@ def test_downloading_the_output(client: TestClient, store: jobs.JobStore, song: 
 def test_downloading_before_rendering_is_a_404(client: TestClient, store: jobs.JobStore, song: Path) -> None:
     job = _ready_job(client, store, song)
     assert client.get(f"/api/jobs/{job.id}/output").status_code == 404
+
+
+def test_the_download_is_named_after_the_song_not_after_the_job(
+    client: TestClient, store: jobs.JobStore, song: Path
+) -> None:
+    """Two songs must not both arrive as `output.flac`."""
+    job = _ready_job(client, store, song)
+    job.track = TrackInfo(artist="A Singer", title="A Song")
+    _confirm(client, job)
+    response = client.get(f"/api/jobs/{job.id}/output")
+    disposition = response.headers["content-disposition"]
+    # Starlette encodes a name with spaces as RFC 5987 `filename*=utf-8''...`, which is what
+    # a browser needs; the point is the name itself, not the exact spelling of the header.
+    assert disposition.startswith("attachment;")
+    assert unquote(disposition.split("utf-8''", 1)[1]) == "A Singer - A Song_clean.flac"
+
+
+def test_a_download_name_falls_back_to_the_uploaded_filename(
+    client: TestClient, store: jobs.JobStore, song: Path
+) -> None:
+    job = _ready_job(client, store, song)
+    job.track = TrackInfo()
+    _confirm(client, job)
+    disposition = client.get(f"/api/jobs/{job.id}/output").headers["content-disposition"]
+    assert disposition.endswith("_clean.flac")
+    assert "output_clean" not in disposition
+
+
+def test_a_finished_job_can_still_be_rejoined(client: TestClient, store: jobs.JobStore, song: Path) -> None:
+    """A refresh must not throw away the download the user came back for."""
+    job = _ready_job(client, store, song)
+    _confirm(client, job)
+    snapshot = client.get(f"/api/jobs/{job.id}").json()
+    assert snapshot["state"] == "done"
+    render = snapshot["render"]
+    assert render["words_censored"] == 1
+    assert render["windows"] == 1
+    assert render["output"].endswith("/output")
+    assert render["filename"].endswith("_clean.flac")
+
+
+def test_a_job_still_being_analysed_carries_no_render_figures(
+    client: TestClient, store: jobs.JobStore, song: Path
+) -> None:
+    job = _ready_job(client, store, song)
+    assert client.get(f"/api/jobs/{job.id}").json()["render"] is None
+
+
+# --- the original, for the A/B after a reload -------------------------------------------------
+
+
+def test_the_original_upload_is_served_back(client: TestClient, store: jobs.JobStore, song: Path) -> None:
+    job = _ready_job(client, store, song)
+    response = client.get(f"/api/jobs/{job.id}/original")
+    assert response.status_code == 200
+    assert response.content == song.read_bytes()
+
+
+def test_the_original_is_served_as_audio_not_as_an_opaque_blob(
+    client: TestClient, store: jobs.JobStore, song: Path
+) -> None:
+    """`application/octet-stream` downloads but some browsers will not play it."""
+    job = _ready_job(client, store, song)
+    response = client.get(f"/api/jobs/{job.id}/original")
+    assert response.headers["content-type"].startswith("audio/")
+    for suffix in (".flac", ".wav", ".mp3", ".m4a", ".ogg", ".opus", ".aiff"):
+        assert _media_type(suffix).startswith("audio/")
+
+
+def test_the_original_of_an_unknown_job_is_a_404(client: TestClient) -> None:
+    assert client.get("/api/jobs/nope/original").status_code == 404
 
 
 # --- stem mode -----------------------------------------------------------------------------

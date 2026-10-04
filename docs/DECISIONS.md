@@ -566,3 +566,38 @@ Re-probed at 1000x420 and 1400x900: every screen's buttons are hit-testable, no 
 1400x900 layout is byte-for-byte what it was before. Note that `Emulation.setDeviceMetricsOverride`
 does not work in this headless Chrome - a window size only takes effect if Chrome itself was
 launched with that `--window-size`, so the short window needed a second Chrome on another port.
+
+## Getting the file out: two gaps found by asking whether a download works at all
+
+A fair question ("should I be able to download the finished song yet?") turned out to hide two
+real problems, both of which only show once a user actually goes looking for the file.
+
+- **The download was called `output.flac`.** The file on disk is `output.<ext>` because a job
+  directory is disposable and shared by every stage, but the name the *user* ends up with is not
+  disposable: two songs both arriving as `output.flac` means one of them gets lost. The disk name
+  stays; `Job.download_name` now serves `<artist> - <title>_clean.<ext>`, falling back through
+  title alone, then the uploaded filename, then `output`. `pipeline._safe_filename` moved to
+  `metadata.safe_filename` because the CLI and the server must not disagree about what a safe name
+  is, and the browser is told the name as well (`anchor.download`) so the status line can say what
+  was saved rather than a bare "saved".
+- **A refresh threw the download away.** `resume()` sent any finished job back to the welcome
+  screen, on the grounds that the render figures only existed in the review response - which was
+  true when that was written. The result is that the one thing the user came back for was
+  unreachable after a reload, even though the file was sitting on the disk. The figures now travel
+  in the job's own snapshot (`Job.snapshot` carries `render`, `None` until there is something
+  rendered), so `?job=` rejoins the result screen. A failed job goes to the failed screen, which
+  is a different thing: it has no figures and is not pretending otherwise.
+- **`GET /api/jobs/{id}/original` is new.** The A/B comparison played the browser's own copy of
+  the upload, which only exists while the page has been alive; after a reload the ORIGINAL button
+  would have pointed at a null source and looked perfectly healthy. The pipeline already copies
+  the untouched upload into the job directory, so serving it back costs nothing and is byte
+  identical to what the user dropped in. `_MEDIA_TYPES` gained the formats a user is likely to
+  drop in, because `application/octet-stream` downloads but not every browser will play it.
+
+Verified end to end against the real server on a real 45 s clip: a page opened fresh at
+`/?job=<finished job>` lands on the result screen with nothing injected, and clicking DOWNLOAD
+writes `Don Toliver, Kodak Black - BROTHER STONE_clean.flac`, 9,004,583 bytes, FLAC/PCM_24
+44.1 kHz stereo 44.98 s, the same length as the mix. Outside the five censor windows the file
+matches the mix to 1.19e-07 (24-bit quantisation); inside them the difference reaches 0.81, which
+is the vocal being removed. The only samples anywhere that differ outside a window are 2,412 of
+the 2,631 the *source* holds above full scale (peak 1.558) and no integer audio format can store.

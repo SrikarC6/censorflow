@@ -169,17 +169,11 @@ def _add_api(app: FastAPI) -> None:
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
-            job_stats = await asyncio.to_thread(app.state.store.confirm, job)
+            await asyncio.to_thread(app.state.store.confirm, job)
         except JobError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         payload_out = review.payload(job)
-        payload_out["render"] = {
-            "output": f"/api/jobs/{job.id}/output",
-            "words_censored": job_stats.word_count,
-            "windows": job_stats.window_count,
-            "muted_seconds": job_stats.muted_seconds,
-            "clipped_samples": job_stats.clipped_samples,
-        }
+        payload_out["render"] = review.render_payload(job)
         return payload_out
 
     @api.get("/api/jobs/{job_id}/clip")
@@ -207,6 +201,22 @@ def _add_api(app: FastAPI) -> None:
         path = job.output_path
         if not path.is_file():
             raise HTTPException(status_code=404, detail="nothing has been rendered yet")
+        return FileResponse(
+            path, media_type=_media_type(path.suffix), filename=job.download_name
+        )
+
+    @api.get("/api/jobs/{job_id}/original")
+    async def job_original(job_id: str) -> FileResponse:
+        """The untouched upload, so the A/B comparison survives a page reload.
+
+        While the page is alive it plays the browser's own copy of the file, which costs
+        nothing. After a reload that copy is gone, and without this route the ORIGINAL button
+        would silently play nothing while looking perfectly healthy.
+        """
+        job = _job(app, job_id)
+        path = job.original_path
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="the original file is not available")
         return FileResponse(path, media_type=_media_type(path.suffix), filename=path.name)
 
     _add_stem_routes(app)
@@ -351,7 +361,23 @@ def _clip(job: jobs.Job, kind: str, start: float, end: float) -> tuple[bytes, st
     return preview.wav_response(preview.region_audio(job, kind, start, end), config.SAMPLE_RATE)
 
 
-_MEDIA_TYPES = {".flac": "audio/flac", ".wav": "audio/wav", ".mp3": "audio/mpeg"}
+# The original upload is served back for the A/B comparison, so the formats a user is likely
+# to drop in have to arrive as audio. `application/octet-stream` still downloads, but some
+# browsers refuse to play it, which would look like a broken ORIGINAL button.
+_MEDIA_TYPES = {
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".aiff": "audio/aiff",
+    ".aif": "audio/aiff",
+    ".wma": "audio/x-ms-wma",
+}
 
 
 def _media_type(suffix: str) -> str:

@@ -140,6 +140,27 @@ def payload(job: Job) -> dict[str, Any]:
     }
 
 
+def render_payload(job: Job) -> dict[str, Any] | None:
+    """What the result screen reports, or `None` while there is nothing rendered yet.
+
+    Shared by the review POST (which renders and then answers) and by `Job.snapshot`, so a
+    page that reloads onto a finished job can rebuild the result screen instead of pretending
+    the render never happened.
+    """
+    stats = job.stats
+    if stats is None:
+        return None
+    return {
+        "output": f"/api/jobs/{job.id}/output",
+        "original": f"/api/jobs/{job.id}/original",
+        "filename": job.download_name,
+        "words_censored": stats.word_count,
+        "windows": stats.window_count,
+        "muted_seconds": stats.muted_seconds,
+        "clipped_samples": stats.clipped_samples,
+    }
+
+
 def flag_payload(flag: Flag, profane: frozenset[str], allowed: frozenset[str]) -> dict[str, Any]:
     """A flag plus the verdict the review screen shows.
 

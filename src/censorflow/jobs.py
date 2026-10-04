@@ -28,14 +28,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from . import audio_io, config, pipeline
+from . import audio_io, config, metadata, pipeline
 from .censor import render as render_mod
 from .compute.base import ComputeBackend, ComputeError
 from .compute.local import LocalBackend
 from .models import Flag, TrackInfo, Word
 from .pipeline import PipelineResult
 from .profanity import detect
-from .review import JobError
+from .review import JobError, render_payload
 
 logger = logging.getLogger(__name__)
 
@@ -155,11 +155,35 @@ class Job:
         payload["filename"] = self.source.name
         payload["flags"] = len(self.flags)
         payload["words"] = len(self.words)
+        # A finished job has to be able to rebuild the result screen after a reload, or the
+        # user loses the download button to a refresh even though the file is sitting there.
+        payload["render"] = render_payload(self)
         return payload
 
     @property
     def output_path(self) -> Path:
         return self.directory / f"output.{self.export_format.lstrip('.').lower()}"
+
+    @property
+    def original_path(self) -> Path:
+        """The untouched upload, as the pipeline copied it. Never re-encoded."""
+        return self.directory / f"original{self.source.suffix.lower() or '.audio'}"
+
+    @property
+    def download_name(self) -> str:
+        """The name the browser saves the finished file under.
+
+        The file on disk is `output.<ext>` because job directories are disposable and shared
+        by every stage. The name the user ends up with is not disposable: two songs must not
+        both arrive as `output.flac`. So the served name is `<artist> - <title>_clean.<ext>`,
+        falling back through title, then the uploaded filename, then `output`.
+        """
+        suffix = self.export_format.lstrip(".").lower()
+        parts = [self.track.artist, self.track.title]
+        label = " - ".join(part for part in parts if part)
+        if not label:
+            label = metadata.title_from_filename(self.source) or self.source.stem
+        return f"{metadata.safe_filename(label)}_clean.{suffix}"
 
     @property
     def mix_path(self) -> Path:

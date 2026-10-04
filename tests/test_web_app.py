@@ -62,6 +62,7 @@ def test_every_path_the_client_asks_for_is_a_route() -> None:
         "/api/jobs/{job_id}/review",
         "/api/jobs/{job_id}/clip",
         "/api/jobs/{job_id}/output",
+        "/api/jobs/{job_id}/original",
     }
     used = _calls(_read("api.js"))
     assert used, "no paths found in api.js at all"
@@ -392,12 +393,35 @@ def test_a_job_can_be_picked_back_up_from_the_query_string() -> None:
     app = _read("app.js")
     assert "new URLSearchParams(window.location.search).get('job')" in app
     assert "api.getJob(id)" in app
-    # A finished job cannot be re-entered: the render figures only exist in the
-    # review response, and there is nothing left to review.
-    assert "state_ === 'done' || state_ === 'error'" in app
     # A job that is waiting for review is picked up at the review screen, not at
     # the stage list it no longer has any stages left to show.
     assert "review.open(id)" in app
+
+
+def test_a_refresh_does_not_throw_away_a_finished_render() -> None:
+    """The whole point of coming back to `?job=` is to reach the file you already made."""
+    app = _read("app.js")
+    assert "state_ === 'done'" in app
+    assert "state.render = state.snapshot.render || state.render;" in app
+    assert "ui.show('result')" in app.split("state_ === 'done'", 1)[1].split("awaiting_review", 1)[0]
+    # A failed job is not a finished one: it has no render figures to show.
+    assert "state_ === 'error'" in app
+
+
+def test_the_ab_comparison_falls_back_to_the_served_original() -> None:
+    """After a reload the browser's own copy of the upload is gone, not the song."""
+    app = _read("app.js")
+    body = app.split("function playSource(kind)", 1)[1].split("\n}", 1)[0]
+    assert "state.objectUrl || api.originalUrl(state.job.id)" in body
+    assert "/api/jobs/${id}/original" in _read("api.js")
+
+
+def test_the_download_says_the_name_the_file_will_have() -> None:
+    app = _read("app.js")
+    body = app.split("function saveOutput()", 1)[1].split("\n}", 1)[0]
+    assert "anchor.download = name || ''" in body
+    assert "SAVED" in body
+    assert "state.render?.filename" in body
 
 
 def test_starting_again_releases_the_object_url_and_the_stream() -> None:
