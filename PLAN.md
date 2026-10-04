@@ -96,24 +96,81 @@ pulling JS changes, or the browser will quietly run the previous build.
     two rows in one space - stacked rows overlap and only the top one is ever hit
   - a row too wide for the window now says *this window is too narrow - make it wider* instead of
     presenting controls that cannot work
-- [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`
+- [x] 4c fix: getting the file out
+  - asked whether a finished song could be downloaded yet. It could, but the download was called
+    `output.flac` (two songs would collide) and a page refresh sent the user back to the welcome
+    screen, throwing away the download button while the file sat on the disk
+  - `Job.download_name` serves `<artist> - <title>_clean.<ext>`; the disk name stays `output.<ext>`
+    because job directories are disposable. `pipeline._safe_filename` moved to
+    `metadata.safe_filename` so the CLI and the server cannot disagree
+  - `Job.snapshot` now carries `render` (`None` until something is rendered), so `?job=` rejoins
+    the result screen after a refresh
+  - `GET /api/jobs/{id}/original` is new: the A/B played the browser's own copy of the upload,
+    which does not survive a reload. `_MEDIA_TYPES` gained the formats a user is likely to drop in
+  - verified against the real server on a real clip: a page opened fresh at `?job=<done job>` lands
+    on the result screen with nothing injected, and DOWNLOAD writes a 9,004,583-byte
+    `..._clean.flac` that matches the mix to 1.19e-07 outside the windows and differs by up to
+    0.81 inside them
+- [ ] 4d: Stems screen (skeleton only) + `docs/STEMS_TODO.md`
+  - the five stem routes already return 501, so this is the screen and the checklist
   - the UI-element cleanup the user asked for after 4c ("fix up the UI elements") lands here or
     just before it
 
 ## Phase 5 - hardening and docs
 
-- [ ] Friendly errors (ffmpeg missing, unreadable, no vocals, model download, disk full)
-- [ ] First-run model download progress in the UI
-- [ ] `README.md` (install, run, dev flags, layout, troubleshooting)
-- [ ] Clean clone: `uv sync && uv run censorflow serve`
-- [ ] Re-read `AGENTS.md`, confirm every non-negotiable rule is met and tested
-- [ ] A JavaScript test harness (a DOM stub driven by `node`) so `flipdisc.js` and the screens are
-      executed, not only asserted on as text - two dead-button bugs got through static checks
-- [ ] A timeout on the worker subprocesses in `compute/local.py`
+- [ ] **A JavaScript test harness** (a DOM stub driven by `node`) so `flipdisc.js` and the screens
+      are executed, not only asserted on as text. Highest-value item on this list: three separate
+      bugs got through because nothing ever ran the client code
+- [ ] First-run model download progress in the UI (today it only says the model is missing)
+- [ ] `README.md` (install, run, dev flags, layout, troubleshooting) - required before anyone
+      else can run this
+- [ ] Clean clone: `uv sync && uv run censorflow serve` with no `models/` present
+- [ ] A timeout on the worker subprocesses in `compute/local.py`; a hung stage currently hangs the
+      server with no way out
+- [ ] Persist `JobStore`, or say plainly in the UI that a server restart loses in-flight jobs
+- [ ] Friendly errors for the cases not yet covered: unreadable file, no vocals in the track, disk
+      full, model missing
+- [ ] Offer Fast/Pro quality on the Mode screen instead of hardcoding `quality: 'fast'`
 - [ ] Break up the oversized files: `flipdisc.js` (~700 lines), `review.js` (~430), `app.js` (401),
       `font5x7.js` (~435). `AGENTS.md` asks for roughly 300
-- [ ] Offer Fast/Pro quality on the Mode screen instead of hardcoding `quality: 'fast'`
-- [ ] Persist `JobStore` state, or say plainly in the UI that a server restart loses in-flight jobs
+- [ ] Re-read `AGENTS.md`, confirm every non-negotiable rule is met and tested
+
+## Phase 6 - stem mode, for real
+
+Skeleton only so far. `docs/STEMS_TODO.md` holds the checklist `AGENTS.md` specifies: four per-stem
+volumes at 0-200 %, mute and isolate, keys 1-4 to select, waveform scrubber with a draggable
+playhead, snippet mode with bracket handles and a gapless loop, export of the whole song or a
+snippet at the chosen volumes, Fast/Pro quality, batch folder separation, and independent stem
+download.
+
+Work that has to happen before the screen can be real, and which the skeleton deliberately avoids:
+
+- `separation/` already returns four stems from Demucs (`vocals`, `drums`, `bass`, `other`), but
+  **they do not sum to the mix** (measured RMS error 0.0305). Any mixer built on them will drift
+  from the original, so the sum of the four has to be reconciled against the mix, and the
+  discrepancy reported rather than hidden.
+- The stems are written at 44.1 kHz by the separator and are long files; a mixer wants them
+  streamed or at least range-read, not loaded whole.
+- Playback of four synchronised stems needs one audio clock, not four `<audio>` elements.
+- Export has to reuse the existing `audio_io.encode` path and keep the 24-bit default.
+
+## Phase 7 - cloud and website (planned, to be built in Cursor)
+
+Not started here on purpose: `AGENTS.md` keeps AWS out of scope for now, and the user has said
+this part will be done in Cursor. Before that work begins, `AGENTS.md`'s "Local first" and "Out of
+scope" sections need rewriting - they currently forbid exactly what is about to be built.
+
+- Implement `compute/remote.py` against its own documented contract: upload to S3, run the same
+  two stages (`separate`, `transcribe`) on a GPU worker, download a vocal stem (FLAC) and
+  `words.json`. Leave `ComputeBackend` in `compute/base.py` as the seam and do not let
+  LocalBackend's assumptions leak into the interface.
+- `workers/fetch_lyrics.py` already exists as a standalone entry point; a remote job needs the
+  same lyrics cross-check, and lyrics are deliberately *not* part of the `ComputeBackend` seam.
+- Decide where the 2.3 GB of model weights live for a hosted deployment; they are currently in
+  `<repo>/models` on the user's machine.
+- The public website needs an answer for jobs that are not local: a job registry that outlives the
+  process, which is already on the Phase 5 list for the local case.
+- Copyright: lyrics must never be committed or shipped. The cache lives in `~/.censorflow`.
 
 ## Cosmetic loose ends
 
@@ -121,15 +178,4 @@ pulling JS changes, or the browser will quietly run the previous build.
 - [ ] A hovered plate becomes a solid block of colour (the label is still dots, but it is not a
       sign any more) - may yet be rejected
 - [ ] The HTML transport is Chrome's default audio widget recoloured by a CSS filter
-
-## Note for the coming Cursor / cloud phase
-
-The user plans to move this project into Cursor soon so that **AWS cloud deployment and the public
-website** are built there. Not started here, deliberately: `AGENTS.md` keeps AWS out of scope for
-now. Two consequences to respect while the local work continues:
-
-- Leave `ComputeBackend` (`compute/base.py`) and `compute/remote.py`'s documented contract intact.
-  They are the seam the remote worker plugs into, so nothing local should be allowed to leak the
-  LocalBackend's assumptions into the interface.
-- Re-read `AGENTS.md`'s "Local first" and "Out of scope" sections when that work starts rather
-  than trusting this note; the rules will likely need updating first.
+- [ ] `flip-motion.js`'s `fullWipe` and `startIdleFlips` are on disk, imported by nothing

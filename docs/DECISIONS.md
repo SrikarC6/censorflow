@@ -601,3 +601,18 @@ writes `Don Toliver, Kodak Black - BROTHER STONE_clean.flac`, 9,004,583 bytes, F
 matches the mix to 1.19e-07 (24-bit quantisation); inside them the difference reaches 0.81, which
 is the vocal being removed. The only samples anywhere that differ outside a window are 2,412 of
 the 2,631 the *source* holds above full scale (peak 1.558) and no integer audio format can store.
+
+## PLAN.md restructured as the full roadmap, phases 0 to 7
+
+The user is moving the project to Cursor to have the AWS deployment and the public website built
+there, and asked for a PLAN.md that covers the whole thing rather than the current phase. Phases 5
+(hardening), 6 (stem mode for real) and 7 (cloud and website) are now written out with the
+non-obvious obstacles recorded, not just the feature names - chiefly that the four Demucs stems do
+not sum to the mix, that four `<audio>` elements will not stay in sync, that `AGENTS.md` currently
+forbids exactly what Phase 7 is going to build, and that the biggest outstanding risk to the
+project is that no JavaScript ever gets executed by a test.
+
+Commits up to and including this point: `32cb486` phase 0, `3f5688f` phase 1, `3bbd04a` phase 2,
+`859cc5e` phase 3, then the phase 4a iterations (`fdaca21`, `0003226`, `87cb7b7`, `9b45354`,
+`f1a7cbc`, `b1f4ea1`), `e6aab12` phase 4b, `41f99b8` phase 4c, `874d0ad` the dead-button fix, and
+`3937534` the download fixes.
