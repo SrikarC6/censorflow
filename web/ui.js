@@ -74,6 +74,14 @@ export const NOTICE_ROWS = 13;
 const MARGIN = 4;
 
 /**
+ * Dots a screen needs before its controls are worth splitting across rows.
+ *
+ * Below this the rows would be closer together than the tallest button is high,
+ * so two of them cannot both be reached.
+ */
+const MIN_USABLE_ROWS = 60;
+
+/**
  * Everything the screens read, in one object, owned here rather than in app.js:
  * the review screen (review.js) is a separate module and needs the same job, the
  * same upload and the same transport. Two copies of "which job am I on" is how a
@@ -95,6 +103,8 @@ export function createUi({ canvas, overlay }) {
   const screens = new Map();
   let currentName = null;
   let currentScreen = null;
+  // Set by the last `buttonRow` that could not fit the window, read by `notice`.
+  let narrow = false;
   // One painter, forever: it forwards to whichever screen is showing. Registering
   // a painter per screen instead would stack them up across a hundred redraws.
   // Helpers first, because that is all a screen needs; the board itself is on
@@ -108,12 +118,45 @@ export function createUi({ canvas, overlay }) {
     cols: () => board.cols,
     rows: () => board.rows,
     /**
+     * The first row the status notice may occupy.
+     *
+     * Nothing else may be drawn at or below it. On a short window a screen's block
+     * is taller than the space available, and whatever overflows last is what ends
+     * up under the notice - which is how a button ends up painted over by a plate
+     * and looks like it is not there at all.
+     */
+    bottom: () => Math.max(0, board.rows - NOTICE_ROWS - 2),
+    /**
+     * Is this window too short for a screen's full set of controls?
+     *
+     * `buttonRow` clamps a row that will not fit up above the status line, which
+     * stops a button being drawn where it cannot be clicked - but two rows clamped
+     * onto the same space end up on top of each other, and only the first one drawn
+     * is ever hit. A screen asks this and drops to a single row rather than
+     * stacking controls that cannot all be reached.
+     */
+    tight(tall) {
+      return board.rows - NOTICE_ROWS - tall < MIN_USABLE_ROWS;
+    },
+    /**
      * The first row of a block `tall` dots high, centred in the space above the
      * status line. Screens declare their own size rather than guessing a fraction
      * of the window, which is how a button ends up underneath the notice.
      */
     top(tall) {
       return Math.max(2, Math.floor((board.rows - NOTICE_ROWS - tall) / 2));
+    },
+    /**
+     * The column that centres a row of buttons, measured from the handles themselves.
+     *
+     * Screens used to write `cols() / 2 - 13` and guess the half-width of the label.
+     * A guess is wrong the moment the label is long or the window is narrow, and a
+     * button pushed off the right edge cannot be clicked at all.
+     */
+    centre(handles, { gap = 2 } = {}) {
+      const width = handles.reduce((total, handle) => total + handle.width, 0);
+      const spaces = Math.max(0, handles.length - 1) * gap;
+      return Math.max(MARGIN, Math.floor((board.cols - width - spaces) / 2));
     },
     /**
      * A sign of text, wrapped and scaled to fit the window. Returns the first row
@@ -152,9 +195,23 @@ export function createUi({ canvas, overlay }) {
     },
     /** Buttons already created, laid out left to right from a cursor. */
     buttonRow(handles, row, { col = MARGIN, gap = 2 } = {}) {
-      let cursor = col;
+      // A button drawn at or below the notice cannot be clicked, and one drawn past
+      // the last row is off the window entirely. Both happen on a short window,
+      // where the signs above have already used up the space, so the buttons get
+      // the last word: they move up into the gap rather than under the notice.
+      const height = Math.max(...handles.map((handle) => handle.height));
+      const at = Math.min(row, Math.max(2, helpers.bottom() - height));
+      const width = handles.reduce((total, handle) => total + handle.width, 0);
+      // Pulled left far enough that the row still fits, rather than hanging off the
+      // right edge where half of it cannot be clicked.
+      const start = Math.max(0, Math.min(col, board.cols - width));
+      // A row that cannot fit however it is placed means the window is too narrow
+      // for these controls. Recording that lets the status line say so, instead of
+      // leaving the user looking at a button that does nothing.
+      narrow = width > board.cols;
+      let cursor = start;
       for (const handle of handles) {
-        handle.place(cursor, row);
+        handle.place(cursor, at);
         cursor += handle.width + gap;
       }
       return cursor;
@@ -165,9 +222,13 @@ export function createUi({ canvas, overlay }) {
       return handle;
     },
     notice(text, tone = TONE_PLAIN) {
+      // A row of controls that will not fit the window is worth saying out loud:
+      // those buttons are on screen but off the edge, and a dead button with no
+      // explanation is the one failure this board cannot show the user.
+      const spoken = narrow ? 'this window is too narrow - make it wider' : text;
       // Nothing to say means no sign: an empty plate is a box on the display
       // saying nothing, which is worse than saying nothing.
-      if (!text) return 0;
+      if (!spoken) return 0;
       // Two dots of air under the sign, so it does not sit on the window edge.
       const height = getFont().rows + 4;
       const row = Math.max(0, board.rows - NOTICE_ROWS - 2);
@@ -176,7 +237,7 @@ export function createUi({ canvas, overlay }) {
       // run off the edge. Shortening by one character at a time keeps the cut on a
       // glyph boundary, which slicing to a character count would not.
       const maxCols = Math.max(8, board.cols - 8);
-      const label = fitLine(String(text), maxCols);
+      const label = fitLine(String(spoken), maxCols);
       const width = Math.min(board.cols - 2, textCols(label, 1) + 4);
       board.plate({ col: 1, row, cols: width, rows: height, tone, ink: toneInk(tone) });
       board.stampText(label, 3, row + 2, { scale: 1 });

@@ -2,6 +2,10 @@
 
 Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
+Note for anyone editing the web UI: `web/` is served with `Cache-Control: no-cache` only by a
+server started at or after commit `e6aab12`. Restart the server and hard-reload the page after
+pulling JS changes, or the browser will quietly run the previous build.
+
 ## Phase 0 - environment and spikes
 
 - [x] Verify `ffmpeg -version`, `uv --version`, Apple Silicon, RAM
@@ -63,7 +67,8 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
   - verified in headless Chrome against the real server: Welcome, Processing (real Demucs +
     Parakeet subprocesses over SSE) and Awaiting; Result by injecting render stats, since only
     the 4c review POST produces them
-  - **Result has no way in yet** - 4c's review POST reaches it
+  - Result is reached by 4c's review POST, and `tests/test_web_app.py` no longer carries any
+    pending-screen exemptions
   - fixed a real race found while writing the tests: `create` enqueues the job, so the worker
     thread and any inline `run()` executed it twice over one directory. `JobStore.run` now claims
     each job once
@@ -82,7 +87,18 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
   - verified in headless Chrome against the real server: 239 words, 5 flags (2 ASR, 3 LYRICS with
     VERIFY), word toggling adds and removes flags, nudges move the edge, Render wrote a 9 MB FLAC
     and the job went to `done`
+- [x] 4c fix: dead buttons on a short window
+  - the user reported buttons that could not be clicked. Two causes: their browser was replaying a
+    cached `app.js` from before `no-cache` was added (a stale string from an earlier screen gave
+    it away), and a real layout bug that only shows on a window around 1000x420
+  - every button row is now clamped above the status notice, centred from the handles' real widths
+    instead of a guessed half-label, and `helpers.tight()` drops whole rows rather than stacking
+    two rows in one space - stacked rows overlap and only the top one is ever hit
+  - a row too wide for the window now says *this window is too narrow - make it wider* instead of
+    presenting controls that cannot work
 - [ ] 4d: Stems skeleton + `docs/STEMS_TODO.md`
+  - the UI-element cleanup the user asked for after 4c ("fix up the UI elements") lands here or
+    just before it
 
 ## Phase 5 - hardening and docs
 
@@ -91,3 +107,29 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 - [ ] `README.md` (install, run, dev flags, layout, troubleshooting)
 - [ ] Clean clone: `uv sync && uv run censorflow serve`
 - [ ] Re-read `AGENTS.md`, confirm every non-negotiable rule is met and tested
+- [ ] A JavaScript test harness (a DOM stub driven by `node`) so `flipdisc.js` and the screens are
+      executed, not only asserted on as text - two dead-button bugs got through static checks
+- [ ] A timeout on the worker subprocesses in `compute/local.py`
+- [ ] Break up the oversized files: `flipdisc.js` (~700 lines), `review.js` (~430), `app.js` (401),
+      `font5x7.js` (~435). `AGENTS.md` asks for roughly 300
+- [ ] Offer Fast/Pro quality on the Mode screen instead of hardcoding `quality: 'fast'`
+- [ ] Persist `JobStore` state, or say plainly in the UI that a server restart loses in-flight jobs
+
+## Cosmetic loose ends
+
+- [ ] Serif `7` has a foot serif on the wrong side
+- [ ] A hovered plate becomes a solid block of colour (the label is still dots, but it is not a
+      sign any more) - may yet be rejected
+- [ ] The HTML transport is Chrome's default audio widget recoloured by a CSS filter
+
+## Note for the coming Cursor / cloud phase
+
+The user plans to move this project into Cursor soon so that **AWS cloud deployment and the public
+website** are built there. Not started here, deliberately: `AGENTS.md` keeps AWS out of scope for
+now. Two consequences to respect while the local work continues:
+
+- Leave `ComputeBackend` (`compute/base.py`) and `compute/remote.py`'s documented contract intact.
+  They are the seam the remote worker plugs into, so nothing local should be allowed to leak the
+  LocalBackend's assumptions into the interface.
+- Re-read `AGENTS.md`'s "Local first" and "Out of scope" sections when that work starts rather
+  than trusting this note; the rules will likely need updating first.

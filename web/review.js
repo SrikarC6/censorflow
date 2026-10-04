@@ -423,7 +423,7 @@ export function registerReview(ui, { say, startUpload, status }) {
         panel.style.bottom = `${(h.rows() - buttonRow) * h.pitch()}px`;
       }
       h.buttonRow([renderButton, overButton], buttonRow, {
-        col: Math.floor(h.cols() / 2) - Math.floor((renderButton.width + overButton.width + 2) / 2),
+        col: h.centre([renderButton, overButton]),
       });
       h.notice(status().text, status().tone);
     },

@@ -174,7 +174,66 @@ def test_a_status_line_is_cut_within_the_window_it_has() -> None:
 
 def test_an_empty_status_line_draws_no_sign() -> None:
     body = _read("ui.js").split("notice(text, tone", 1)[1]
-    assert "if (!text) return 0;" in body
+    assert "if (!spoken) return 0;" in body
+
+
+# --- nothing may end up under the status line or off the window ---------------
+#
+# Both failures look the same to a user: a button that is drawn but cannot be
+# clicked. Reproduced in headless Chrome at a 1000x420 window, where every screen's
+# block is taller than the space available.
+
+
+def test_a_button_row_is_clamped_above_the_status_line() -> None:
+    ui = _read("ui.js")
+    assert "bottom: () => Math.max(0, board.rows - NOTICE_ROWS - 2)" in ui
+    body = ui.split("buttonRow(handles, row", 1)[1].split("\n    },", 1)[0]
+    # The clamp has to be on the row that is placed, not on the cursor.
+    assert "const at = Math.min(row, Math.max(2, helpers.bottom() - height));" in body
+    assert "handle.place(cursor, at)" in body
+
+
+def test_buttons_are_centred_from_their_own_width_and_not_guessed() -> None:
+    ui = _read("ui.js")
+    assert "centre(handles, { gap = 2 } = {})" in ui
+    body = ui.split("centre(handles, { gap", 1)[1].split("\n    },", 1)[0]
+    assert "handle.width" in body
+    assert "handle.label" not in body, "the label length is not the button width"
+    # No screen may go back to guessing a column from the half-width of its label.
+    for name in ("app.js", "review.js"):
+        assert "h.cols() / 2" not in _read(name), name
+
+
+def test_every_button_row_is_centred_through_the_helper() -> None:
+    for name in ("app.js", "review.js"):
+        calls = re.findall(r"h\.buttonRow\(.*?\);", _read(name), re.DOTALL)
+        assert calls, f"{name} places no button rows"
+        for call in calls:
+            assert "h.centre(" in call, f"{name}: {call}"
+
+
+def test_a_row_too_wide_for_the_window_says_so_rather_than_looking_dead() -> None:
+    ui = _read("ui.js")
+    # A button hanging off the right edge cannot be clicked and looks like it is
+    # not there. Saying the window is too narrow is the only honest answer.
+    assert "narrow = width > board.cols;" in ui
+    assert "const spoken = narrow ? 'this window is too narrow - make it wider' : text;" in ui
+
+
+def test_a_tight_window_drops_rows_rather_than_stacking_controls() -> None:
+    # Two rows clamped onto the same space overlap, and only the first one drawn is
+    # ever hit - so a screen that cannot fit must show fewer controls, not the same
+    # controls closer together.
+    ui = _read("ui.js")
+    assert "tight(tall)" in ui
+    assert "board.rows - NOTICE_ROWS - tall < MIN_USABLE_ROWS" in ui
+    assert "const MIN_USABLE_ROWS = 60;" in ui
+    app = _read("app.js")
+    assert app.count("h.tight(") >= 3
+    # Every screen with more than one row of controls asks.
+    assert "h.tight(BLOCK.mode)" in app
+    assert "h.tight(BLOCK.awaiting)" in app
+    assert "h.tight(BLOCK.result)" in app
 
 
 def test_the_install_is_checked_before_the_user_picks_a_song() -> None:

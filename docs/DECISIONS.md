@@ -524,3 +524,45 @@ any screen was built. Decisions that outlive the test page:
 - **`resume()` sends an `awaiting_review` job to the review screen, not the stage list.** The
   analysis is over; there are no stages left to show, and the whole point of `?job=` is that a
   refresh does not throw away work.
+
+## Phase 4c fix: buttons that could not be clicked
+
+The user reported buttons doing nothing. Two separate causes, and both were real.
+
+- **A stale browser build.** They quoted a status line that had been deleted a commit earlier, so
+  their browser was running the `app.js` from before `Cache-Control: no-cache` was added. Worth
+  remembering: for a few commits the served JS was cached by Chrome, so an edited module silently
+  did not take effect. `PLAN.md` now says so at the top.
+- **The layout really did break on a short window.** `probe_buttons.mjs` (a new CDP script that
+  walks every shown handle on every screen and reports its row span, whether it overlaps the status
+  notice, whether it hangs off the right edge, and what `document.elementFromPoint` hits at its
+  centre) found that at 1000x420 - 250 dots wide, 105 rows - every screen overflowed: rows landed
+  on the notice, some buttons sat below the bottom of the window entirely, and the widest ones
+  hung off the right. Nothing was covering them; they were simply drawn in places a pointer could
+  not reach.
+
+Four changes, all in `ui.js` and `app.js`:
+
+- **A button row is clamped above the status notice.** `buttonRow` computes
+  `at = min(row, max(2, bottom() - height))`, where `bottom()` is the first row the notice may
+  occupy. A row that cannot be drawn where the screen asked for it is moved rather than dropped,
+  because a moved button still works.
+- **Rows are centred from the handles' real widths.** Screens used to guess
+  `Math.floor(h.cols() / 2) - 13`, which only looks centred for a label of one particular length.
+  `helpers.centre(handles)` sums `handle.width` (which already includes the plate margins) and
+  centres that. `start` is also clamped to `board.cols - width`, so a row is pulled left rather
+  than hanging off the right edge.
+- **`helpers.tight(tall)` drops whole rows instead of stacking them.** Two rows clamped onto the
+  same space overlap, and only the top one is ever hit, so the second row looks just as dead as a
+  button drawn off-screen. A screen that cannot fit shows fewer controls: Mode drops STEMS: SOON
+  and CHOOSE ANOTHER, Awaiting shows only REVIEW THE FLAGS, Result folds its four buttons into one
+  row and skips the stat signs.
+- **A row that cannot fit the width says so.** When `width > board.cols` the status line reads
+  *this window is too narrow - make it wider* rather than presenting controls that cannot work. This
+  is an honest limit, not a bug: the dot board needs roughly 250 columns, so below about 1000px of
+  window there is no sign layout that both fits and reads.
+
+Re-probed at 1000x420 and 1400x900: every screen's buttons are hit-testable, no overlaps, and the
+1400x900 layout is byte-for-byte what it was before. Note that `Emulation.setDeviceMetricsOverride`
+does not work in this headless Chrome - a window size only takes effect if Chrome itself was
+launched with that `--window-size`, so the short window needed a second Chrome on another port.

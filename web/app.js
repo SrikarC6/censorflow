@@ -94,7 +94,7 @@ ui.register('welcome', {
     let row = h.top(BLOCK.welcome);
     row = h.sign('CENSORFLOW', { row });
     row = h.sign('SILENCE THE VOCALS. KEEP THE MUSIC.', { row: row + 4 });
-    h.buttonRow([chooseFile], row + 8, { col: Math.floor(h.cols() / 2) - 16 });
+    h.buttonRow([chooseFile], row + 8, { col: h.centre([chooseFile]) });
     // The format hint normally; a real reason, if the install is not ready.
     h.notice(status.text || 'MP3 M4A FLAC WAV OGG OPUS AIFF - OR DROP A FILE ANYWHERE', status.tone);
   },
@@ -105,12 +105,17 @@ ui.register('mode', {
     const track = state.upload || {};
     let row = h.top(BLOCK.mode);
     row = h.sign('CENSORFLOW', { row });
-    row = h.sign(track.title || track.filename || 'A SONG', { row: row + 3 });
-    const centre = Math.floor(h.cols() / 2);
-    h.buttonRow([censorMode], row + 4, { col: centre - 14 });
-    h.buttonRow([stemsMode], row + 4 + censorMode.height + 3, { col: centre - 16 });
+row = h.sign(track.title || track.filename || 'A SONG', { row: row + 3 });
+    h.buttonRow([censorMode], row + 4, { col: h.centre([censorMode]) });
+    // On a window too short for two rows, the one control that matters is the one
+    // that starts the job; CHOOSE ANOTHER is always reachable from Welcome.
+    if (h.tight(BLOCK.mode)) {
+      h.notice(status.text, status.tone);
+      return;
+    }
+    h.buttonRow([stemsMode], row + 4 + censorMode.height + 3, { col: h.centre([stemsMode]) });
     h.buttonRow([cancelMode], row + 4 + censorMode.height + 3 + stemsMode.height + 3, {
-      col: centre - 9,
+      col: h.centre([cancelMode]),
     });
     h.notice(status.text, status.tone);
   },
@@ -149,10 +154,14 @@ ui.register('awaiting', {
     let row = h.sign('READY FOR REVIEW', { row: h.top(BLOCK.awaiting) });
     // A sentence rather than a headline, so it is set smaller and may wrap.
     row = h.sign('CHECK THE WORDS BEFORE ANYTHING IS MUTED', { row: row + 4, scale: 2 });
-    h.buttonRow([reviewButton], row + 8, { col: Math.floor(h.cols() / 2) - 13 });
-    h.buttonRow([againButton], row + 8 + reviewButton.height + 3, {
-      col: Math.floor(h.cols() / 2) - 9,
-    });
+    h.buttonRow([reviewButton], row + 8, { col: h.centre([reviewButton]) });
+    // One row on a short window: ANOTHER SONG is one click from Welcome and
+    // START OVER is on the review screen, so REVIEW THE FLAGS wins the space.
+    if (!h.tight(BLOCK.awaiting)) {
+      h.buttonRow([againButton], row + 8 + reviewButton.height + 3, {
+        col: h.centre([againButton]),
+      });
+    }
     h.notice(status.text, status.tone);
   },
 });
@@ -175,18 +184,28 @@ ui.register('result', {
     // Figures are a sentence's worth of words, so they are set at scale 2: at
     // scale 4 "5 WORDS CENSORED" wraps to two lines and pushes the buttons off
     // the bottom of the window.
-    row = h.sign(`${stats.words_censored || 0} WORDS CENSORED`, { row: row + 4, scale: 2 });
-    row = h.sign(`${(stats.muted_seconds || 0).toFixed(1)} SECONDS MUTED`, { row: row + 2, scale: 2 });
-    row = h.sign(`${stats.windows || 0} WINDOWS`, { row: row + 2, scale: 2 });
-    if (stats.clipped_samples) {
-      row = h.sign(`${stats.clipped_samples} SAMPLES CLIPPED`, { row: row + 2, scale: 2 });
+    if (!h.tight(BLOCK.result)) {
+      row = h.sign(`${stats.words_censored || 0} WORDS CENSORED`, { row: row + 4, scale: 2 });
+      row = h.sign(`${(stats.muted_seconds || 0).toFixed(1)} SECONDS MUTED`, { row: row + 2, scale: 2 });
+      row = h.sign(`${stats.windows || 0} WINDOWS`, { row: row + 2, scale: 2 });
+      if (stats.clipped_samples) {
+        row = h.sign(`${stats.clipped_samples} SAMPLES CLIPPED`, { row: row + 2, scale: 2 });
+      }
     }
     row += 4;
-    const centre = Math.floor(h.cols() / 2);
-    h.buttonRow([playOriginal, playClean], row, { col: centre - 16 });
-    row += Math.max(playOriginal.height, playClean.height) + 3;
-    h.buttonRow([download], row, { col: centre - 10 });
-    h.buttonRow([againButton], row + download.height + 3, { col: centre - 9 });
+    if (h.tight(BLOCK.result)) {
+      // There is not room for the figures and three rows of controls. The figures
+      // are the first thing to go - they are also in the status line - and all four
+      // buttons share one row so every one of them can be reached.
+      h.buttonRow([playOriginal, playClean, download, againButton], row, {
+        col: h.centre([playOriginal, playClean, download, againButton]),
+      });
+    } else {
+      h.buttonRow([playOriginal, playClean], row, { col: h.centre([playOriginal, playClean]) });
+      const below = row + Math.max(playOriginal.height, playClean.height) + 3;
+      h.buttonRow([download], below, { col: h.centre([download]) });
+      h.buttonRow([againButton], below + download.height + 3, { col: h.centre([againButton]) });
+    }
     h.notice(status.text, status.tone);
   },
 });
@@ -217,7 +236,7 @@ ui.register('failed', {
   paint(h) {
     let row = h.sign('SOMETHING WENT WRONG', { row: h.top(BLOCK.failed) });
     row = h.sign(state.snapshot?.error || 'unknown error', { row: row + 4, scale: 2 });
-    h.buttonRow([againButton], row + 6, { col: Math.floor(h.cols() / 2) - 9 });
+    h.buttonRow([againButton], row + 6, { col: h.centre([againButton]) });
   },
 });
 
