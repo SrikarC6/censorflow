@@ -44,7 +44,7 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
 ## Phase 4 - web UI
 
-- [x] 4a: `flipdisc.js`, `font5x7.js`, `flip-motion.js`, `flip-sound.js`, `web/style.css`, `web/font-test.html`
+- [x] 4a: `flipdisc.js`, `font5x7.js`, `flip-motion.js`, `flip-sound.js`, `web/style.css`, `web/font-test.html` (signs on plates, no board field; tiles keep their field; scrolling banner; toned button frames)
   - serif 7x9 default set, denser dots, single dot layer, animation + flip sounds behind toggles
   - sans is the default again (serif opt-in behind FONT: SERIF); buttons verified clickable
   - **the look: the board paints no dot field at all; dots are ink, and every label and button

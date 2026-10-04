@@ -23,15 +23,24 @@
         are 1 dot between letters and 2 between words. Uppercase-only:
         <code>glyphFor()</code> uppercases its input, so lowercase renders as
         uppercase. The board itself is bare black — dots are ink, never a
-        backdrop.
+        backdrop. The sign along the very top scrolls right to left; it is the one
+        animation the brief ruled out, added because a sentence wider than its
+        sign has to scroll or truncate, and scrolling shows all of it.
       </p>
 
       <h1>Board controls — hover and press</h1>
       <p class="note" id="controls-note">
         Drawn on the real board at grid coordinates with hit-testing in grid space.
-        A button is a sign: board-coloured inside, an amber frame at rest, and the
-        whole thing swaps light and dark the moment you point at it or press it.
-        OFF is disabled, so it keeps its shape and dims instead of vanishing.
+        A button is a sign: bare board inside, a coloured dot frame, and on
+        hover or press every flap in it turns over — the interior fills with amber
+        dots and the label knocks out as dark gaps in them. Still dots; the sign
+        inverts, it never becomes a solid block, and the frame keeps its colour so
+        you can still tell what the control does. The border is the label: green
+        for a control that acts (PRESS, BAR, SOUND, FONT), red for one that stops
+        or is unavailable (ANIMATE, OFF). OFF is disabled, so it keeps its shape
+        and dims instead of vanishing. ANIMATE scatters occasional lone flips
+        across the empty board, SOUND clicks each press. There is no wipe: the
+        board is bare, so there would be nothing to wipe.
       </p>
       <p class="note" id="demo-readout">no presses yet</p>
 
@@ -82,6 +91,8 @@
         textCols,
         FONTS,
       } from './font5x7.js';
+      import { startIdleFlips, prefersReducedMotion, startMarquee } from './flip-motion.js';
+      import { isSoundEnabled, setSoundEnabled, subscribeSound, playRowFlip } from './flip-sound.js';
 
       const pitch = pitchFromLocation();
       const board = createBoard(document.getElementById('board'), { pitch });
@@ -95,16 +106,23 @@
 
       // A scale-1 button is 7 glyph rows + 4 = 11 rows tall; a progress sign is 7
       // caption rows, 3 of air, the bar and 2 of foot. The rows need real air.
-      const ROW = { title: 0, controls: 13, progress: 29, reserved: 45 };
+      const ROW = { banner: 0, controls: 14, progress: 30, reserved: 45 };
 
       const readout = document.getElementById('demo-readout');
       let barPct = 0.62;
+
+      // Every press clicks, the way a row of flaps does. The sound module keeps
+      // its own preference in localStorage, so the button state is read back out
+      // of it rather than tracked here.
+      const click = (discs = 4, large = false) => playRowFlip(discs, large);
 
       const pressMe = board.button({
         col: 2,
         row: ROW.controls,
         label: 'PRESS',
+        tone: 'go',
         onClick: (btn) => {
+          click();
           readout.textContent = `pressed ${btn.label}`;
         },
       });
@@ -113,7 +131,9 @@
         col: 2,
         row: ROW.controls,
         label: 'BAR',
+        tone: 'go',
         onClick: () => {
+          click();
           barPct = barPct >= 0.999 ? 0 : Math.min(1, barPct + 0.19);
           readout.textContent = `progress ${Math.round(barPct * 100)}%`;
           board.redraw();
@@ -124,21 +144,69 @@
         col: 2,
         row: ROW.controls,
         label: 'OFF',
+        tone: 'stop',
         onClick: () => {
           readout.textContent = 'this button is disabled, so this cannot happen';
         },
       });
       dead.setEnabled(false);
 
+      // Idle flips: one lone flap turning over somewhere empty every second or
+      // so. Nothing is wiped, nothing sweeps - the board is bare, so a wipe would
+      // have nothing to wipe. Reduced motion wins over the toggle, as it should.
+      let animate = false;
+      let stopIdle = null;
+
+      function setAnimate(next) {
+        animate = next;
+        animBtn.setEnabled(animate);
+        stopIdle?.();
+        stopIdle = animate ? startIdleFlips(board) : null;
+        readout.textContent = animate ? 'idle flips on' : 'idle flips off';
+      }
+
+      const animBtn = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'ANIMATE',
+        tone: 'stop',
+        onClick: () => setAnimate(!animate),
+      });
+      // A visitor who asked for reduced motion never gets the toggle either.
+      animBtn.setEnabled(!prefersReducedMotion());
+
+      const soundBtn = board.button({
+        col: 2,
+        row: ROW.controls,
+        label: 'SOUND',
+        tone: 'go',
+        onClick: () => {
+          setSoundEnabled(!isSoundEnabled());
+          click(2);
+        },
+      });
+      soundBtn.setEnabled(isSoundEnabled());
+      subscribeSound((on) => {
+        soundBtn.setEnabled(on);
+        readout.textContent = on ? 'sound on' : 'sound off';
+      });
+
       const fontBtn = board.button({
         col: 2,
         row: ROW.controls,
         label: 'FONT: SERIF',
+        tone: 'go',
         onClick: () => {
           const next = fontName() === 'serif' ? 'sans' : 'serif';
           setFont(next);
           fontBtn.setLabel(`FONT: ${next.toUpperCase()}`);
-          renderAll();
+          click(6, true);
+renderAll();
+
+      window.addEventListener('pagehide', () => {
+        stopIdle?.();
+        stopBanner?.();
+      });
           board.redraw();
           readout.textContent = `font set: ${next} ${glyphSize().cols}x${glyphSize().rows}`;
         },
@@ -154,9 +222,28 @@
         }
       }
 
+      // The banner runs along the very top of the board, the one piece of motion
+      // the design brief ruled out. It is here because the sentence is wider than
+      // any sign on this page, and a sign that only shows its first few words is
+      // worse than one that shows all of them.
+      const BANNER_TEXT = 'CENSORFLOW - THE PREMIERE MUSIC FILE CENSORER AND STEM SEPARATION APPLICATION';
+      let stopBanner = null;
+
+      function startBanner() {
+        stopBanner?.();
+        const cols = Math.floor(window.innerWidth / pitch) - 2;
+        if (cols < 20) return;
+        stopBanner = startMarquee(board, {
+          col: 1,
+          row: ROW.banner,
+          cols,
+          text: BANNER_TEXT,
+          scale: 1,
+        });
+      }
+
       board.onDraw((b) => {
-        b.stampText('BOARD CONTROLS', 2, ROW.title, { scale: 1 });
-        placeRow([pressMe, bump, dead, fontBtn], 2, ROW.controls);
+        placeRow([pressMe, bump, dead, animBtn, soundBtn, fontBtn], 2, ROW.controls);
         b.progress({
           col: 2,
           row: ROW.progress,
@@ -167,7 +254,16 @@
       });
 
       document.documentElement.style.setProperty('--demo-reserve', `${ROW.reserved * pitch}px`);
+      startBanner();
       board.redraw();
+
+      // The banner is as wide as the window, so it has to be rebuilt when the
+      // window changes. Debounced, like everything else that measures.
+      let bannerTimer = 0;
+      window.addEventListener('resize', () => {
+        window.clearTimeout(bannerTimer);
+        bannerTimer = window.setTimeout(startBanner, 200);
+      });
 
       // A hook for the headless click-through checks in tmp/e2e, which read the
       // real button rects and hit-test them rather than guessing at pixels.
@@ -175,7 +271,14 @@
 
       /* --- the glyph tiles --------------------------------------------------- */
 
-      /** One canvas of `text` at `scale`, lit dots only, transparent elsewhere. */
+      /**
+       * One canvas of `text` at `scale`, carrying its own field of unlit dots.
+       *
+       * The tiles keep the old texture on purpose: a glyph is only legible against
+       * the full matrix, so a specimen with nothing behind it hides exactly the
+       * thing you are inspecting. The board itself stays bare, so the field is
+       * bounded by the tile - the specimen sheet has texture, the UI does not.
+       */
       function tileCanvas(text, scale, pad = 1) {
         const canvas = document.createElement('canvas');
         const { cols, rows } = measureFlipText(text, scale);
@@ -185,7 +288,6 @@
           cols: cols + pad * 2,
           rows: rows + pad * 2,
           lit: cells.map((cell) => [cell.x + pad, cell.y + pad]),
-          paintField: false,
         });
         return canvas;
       }

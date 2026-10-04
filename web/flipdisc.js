@@ -39,6 +39,22 @@ export const ON = 1;
 export const INV = 2;
 export const DIM = 3;
 
+/**
+ * Frame colours. A control is told apart from a label by its border, not by its
+ * text: green means it does something, red means it stops something or is off.
+ * They are cell states rather than paint options because `plate` and `stroke`
+ * take a state, and one more state is cheaper than a parallel colour channel.
+ */
+export const GO = 4;
+export const STOP = 5;
+
+/**
+ * How much wider an inverted flap is drawn than a lit one, as a fraction of the
+ * disc radius. Just enough to cover the lit flap underneath it: an inverted cell
+ * has to be a hole in the dots, not a dot on top of dots.
+ */
+const INV_OVERDRAW = 1.08;
+
 const RESIZE_DEBOUNCE_MS = 80;
 
 function readColours() {
@@ -50,6 +66,8 @@ function readColours() {
     bg: pick('--bg', '#05080D'),
     hi: pick('--on-hi', 'rgba(255,230,140,0.42)'),
     dim: pick('--on-dim', '#6B5620'),
+    go: pick('--on-go', '#2FBF71'),
+    stop: pick('--on-stop', '#E5484D'),
   };
 }
 
@@ -110,8 +128,11 @@ export function renderField(
     if (col < 0 || row < 0 || col >= cols || row >= rows) continue;
     const x = col * pitch;
     const y = row * pitch;
+    // Wipe the cell first: with a field underneath, the unlit disc has to be
+    // erased before the lit one lands. The fill is the background colour, never
+    // the lit colour - a lit cell is a disc, never a square.
     if (paintField) {
-      ctx.fillStyle = colours.on;
+      ctx.fillStyle = colours.bg;
       ctx.fillRect(x, y, pitch, pitch);
     }
     drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.on);
@@ -174,24 +195,42 @@ export function createBoard(canvas, options = {}) {
     const state = cells[index(col, row)];
     const x = col * pitch;
     const y = row * pitch;
+    const cx = x + pitch / 2;
+    const cy = y + pitch / 2;
+    // Every cell is erased to the background, then whatever the state calls for
+    // is drawn as a disc. Nothing on this board is ever a filled square: the
+    // dots are the design, so a lit cell is a round flap and the gaps between
+    // flaps stay background.
+    ctx.fillStyle = colours.bg;
+    ctx.fillRect(x, y, pitch, pitch);
     if (state === OFF) {
       // The board is deliberately bare. An always-on grid of unlit discs is noise
       // behind every label: the eye reads the field, not the text. Dots are ink,
       // drawn only where something is actually written, which is what makes the
       // plates read as physical signs sitting on an empty board.
-      ctx.fillStyle = colours.bg;
-      ctx.fillRect(x, y, pitch, pitch);
       return;
     }
     if (state === DIM) {
-      ctx.fillStyle = colours.bg;
-      ctx.fillRect(x, y, pitch, pitch);
-      drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.dim);
+      drawDisc(ctx, cx, cy, radius, colours.dim);
       return;
     }
-    ctx.fillStyle = state === ON ? colours.on : colours.bg;
-    ctx.fillRect(x, y, pitch, pitch);
-    if (state === ON) drawHighlight(ctx, x + pitch / 2, y + pitch / 2, radius, colours.hi);
+    if (state === GO) {
+      drawDisc(ctx, cx, cy, radius, colours.go);
+      return;
+    }
+    if (state === STOP) {
+      drawDisc(ctx, cx, cy, radius, colours.stop);
+      return;
+    }
+    if (state === INV) {
+      // Inverted: a flap flipped to its dark side. It is drawn a hair wider than
+      // a lit disc so it fully covers the flap underneath it, which is what a
+      // knocked-out letter on a lit plate is - a gap in the dots, not a new dot.
+      drawDisc(ctx, cx, cy, radius * INV_OVERDRAW, colours.bg);
+      return;
+    }
+    drawDisc(ctx, cx, cy, radius, colours.on);
+    drawHighlight(ctx, cx, cy, radius, colours.hi);
   }
 
   function repaintAll() {
@@ -236,15 +275,20 @@ export function createBoard(canvas, options = {}) {
     }
   }
 
-  /**
-* A sign: a flat panel with a one-dot frame.
+/**
+   * A sign: a rectangle of cells with a one-dot frame.
    *
    * This is the only container the UI uses. Because the board no longer paints a
    * field, an unlit region is already the background colour, so a plate is exactly
    * `fill` plus a frame - which is what `button` and `progress` already do. It is
    * spelled out as its own call so screens can put a caption on a sign without
-   * inventing a button. `body` is the interior: OFF (the board colour) at rest,
-   * ON when a button is hovered or pressed and swaps to its inverted label.
+   * inventing a button.
+   *
+   * `body` is the interior. At rest it is OFF, which means bare board, so the
+   * label floats on black. Hovering a button sets it to ON, which lights every
+   * interior flap: the plate fills with amber dots and the label is then stamped
+   * INV, knocking holes in those dots. Still dots everywhere - the sign inverts,
+   * it never turns into a solid block.
    */
   function plate({ col, row, cols: width, rows: height, body = OFF, frame = ON } = {}) {
     fill(col, row, width, height, body);
@@ -282,16 +326,26 @@ export function createBoard(canvas, options = {}) {
   }
 
   /**
+ * Border state for each tone. `label` is the plain amber frame a caption gets;
+ * `go` and `stop` are how a control says what it is before you read it.
+ */
+const TONES = { label: ON, go: GO, stop: STOP };
+
+/**
    * A dot-drawn rectangle with a label, hit-tested in grid coordinates.
    * Hover and press swap the two colours, which is why cell state carries a
    * third value: the interior has to read as a hole in a lit field.
+   *
+   * `tone` picks the border: `go` for a control that acts, `stop` for one that
+   * halts or is unavailable, `label` for the plain amber frame.
    */
-  function button({ col, row, label, scale = 1, font, onClick }) {
+  function button({ col, row, label, scale = 1, font, tone = 'label', onClick }) {
     const handle = {
       col,
       row,
       label,
       scale,
+      tone: TONES[tone] === undefined ? 'label' : tone,
       onClick,
       enabled: true,
       hovered: false,
@@ -320,10 +374,13 @@ export function createBoard(canvas, options = {}) {
     }
 
     function render() {
-      // A button is a sign: board-coloured inside, an amber frame at rest, and the
-      // whole thing swaps light and dark the moment you touch it. A disabled
-      // button keeps its shape and label, just dimmed - a bare outline reads as
-      // a rendering bug rather than as "not available yet".
+      // A button is a sign: board-coloured inside, a toned frame at rest, and the
+      // interior plus the label swap the moment you touch it - the inside fills
+      // with lit flaps and the label knocks out as dark holes in them. The frame
+      // keeps its own colour while hovered on purpose: that border is how you know
+      // what the control does, and it should not disappear under your cursor.
+      // A disabled button keeps its shape and label, just dimmed - a bare outline
+      // reads as a rendering bug rather than as "not available yet".
       const active = handle.hovered || handle.pressed;
       const lit = active && handle.enabled;
       const body = lit ? ON : OFF;
@@ -334,7 +391,7 @@ export function createBoard(canvas, options = {}) {
         cols: handle.width,
         rows: handle.height,
         body,
-        frame: ink,
+        frame: handle.enabled ? TONES[handle.tone] : DIM,
       });
       stampText(handle.label, handle.col + 2, handle.row + 2, {
         scale: handle.scale,
@@ -345,6 +402,13 @@ export function createBoard(canvas, options = {}) {
 
     handle.setEnabled = (value) => {
       handle.enabled = value;
+      render();
+      return handle;
+    };
+
+    /** Swap the border colour, e.g. a toggle that goes from stop to go. */
+    handle.setTone = (value) => {
+      handle.tone = TONES[value] === undefined ? 'label' : value;
       render();
       return handle;
     };

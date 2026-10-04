@@ -18,6 +18,10 @@
   --on-hi: rgba(255, 230, 140, 0.42);
   /* A dimmed amber: disabled controls and stages that have not run yet. */
   --on-dim: #6b5620;
+  /* Sign borders, so a control can be told apart from a label at a glance:
+     green for something that acts, red for something that stops or is off. */
+  --on-go: #2fbf71;
+  --on-stop: #e5484d;
 
   --fg: var(--on);
   --dim: #6b7385;
@@ -224,8 +228,7 @@ button.html:focus-visible {
 
 .fonttest canvas {
   display: block;
-  /* Transparent: a tile only carries ink. Its ground comes from the chip it sits
-   * on, or from the bare board. */
+  /* A tile paints its own field, dots and all, so it needs no background here. */
   background: transparent;
 }
 

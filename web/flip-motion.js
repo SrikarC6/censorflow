@@ -9,6 +9,7 @@
  */
 
 import { playRowFlip } from './flip-sound.js';
+import { layoutFlipCells, textCols } from './font5x7.js';
 
 /** Times for the full-board wipe, in milliseconds. */
 const WAVE_MS = 1500;
@@ -183,5 +184,109 @@ export function startIdleFlips(board, { minGapMs = 1400, maxGapMs = 3400 } = {})
   return () => {
     stop = true;
     window.clearTimeout(timer);
+  };
+}
+
+/**
+ * A sign whose caption scrolls: text travelling right to left across a plate.
+ *
+ * This is the one piece of motion the design brief ruled out - "no scrolling
+ * marquee" - and it is here because it was asked for by name once the plates
+ * existed. It earns its place the way a departure board does: a line of dots that
+ * is wider than its sign has to either scroll or truncate, and scrolling keeps
+ * the whole sentence readable instead of its first few words.
+ *
+ * How it stays cheap: the caption is laid out once into a plain array of lit
+ * cells, then repeated sideways until the strip is wider than the sign plus a
+ * gap. Because the strip is periodic, scrolling is just an offset into it, so
+ * the text wraps seamlessly with no special case at the seam, and each tick only
+ * repaints the sign's interior.
+ *
+ * Dots move one column per `stepMs` on a timer rather than on a frame callback:
+ * at one column a tick there is nothing to interpolate, and a timer cannot spin
+ * the CPU on a machine with nothing else to do.
+ *
+ * Honours `prefersReducedMotion` by drawing the first screenful and stopping.
+ * Returns a stop function.
+ */
+export function startMarquee(
+  board,
+  { col, row, cols, text, scale = 1, font, stepMs = 45, gap = 16, sound = false } = {},
+) {
+  const one = layoutCells(text, scale, font);
+  if (one.width === 0) return () => {};
+
+  // Repeat until the strip is longer than the sign, so every window of it is
+  // valid and the wrap has no visible join.
+  const copies = Math.max(1, Math.ceil((cols + gap) / one.width));
+  const strip = [];
+  for (let copy = 0; copy < copies; copy += 1) {
+    for (const cell of one.cells) strip.push({ x: cell.x + copy * one.width, y: cell.y });
+  }
+  const span = copies * one.width;
+  const interior = {
+    col: col + 2,
+    row: row + 2,
+    cols: cols - 4,
+    rows: one.height,
+  };
+
+  function draw(offset) {
+    board.plate({ col, row, cols, rows: one.height + 4 });
+    board.fill(interior.col, interior.row, interior.cols, interior.rows, 0);
+    const start = ((offset % span) + span) % span;
+    for (const cell of strip) {
+      const x = cell.x - start;
+      if (x < 0 || x >= interior.cols) continue;
+      board.cell(interior.col + x, interior.row + cell.y, 1);
+    }
+  }
+
+  let offset = 0;
+  draw(offset);
+
+  if (prefersReducedMotion()) return () => {};
+
+  let timer = 0;
+  let stop = false;
+  function step() {
+    if (stop) return;
+    offset += 1;
+    draw(offset);
+    if (sound && Math.random() < 0.12) playRowFlip(1, false);
+    timer = window.setTimeout(step, stepMs);
+  }
+  timer = window.setTimeout(step, stepMs);
+
+  return () => {
+    stop = true;
+    window.clearTimeout(timer);
+  };
+}
+
+/**
+ * Lay a caption out once, in its own coordinate space, and report how big it is.
+ * `layoutFlipCells` centres on a column and returns coordinates that depend on
+ * that centre; the marquee wants a plain left-aligned bitmap.
+ */
+function layoutCells(text, scale, font) {
+  const cells = layoutFlipCells(text, scale, { font }).cells;
+  if (cells.length === 0) return { cells: [], width: 0, height: 0 };
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const cell of cells) {
+    if (cell.x < minX) minX = cell.x;
+    if (cell.y < minY) minY = cell.y;
+    if (cell.x > maxX) maxX = cell.x;
+    if (cell.y > maxY) maxY = cell.y;
+  }
+  const width = maxX - minX + 1;
+  return {
+    cells: cells.map((cell) => ({ x: cell.x - minX, y: cell.y - minY })),
+    // A trailing blank column keeps the last letter from touching the repeat.
+    width: Math.max(width, textCols(text, scale) + 2),
+    height: maxY - minY + 1,
   };
 }

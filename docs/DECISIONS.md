@@ -396,3 +396,35 @@ any screen was built. Decisions that outlive the test page:
   design asset for the processing screen (a wipe has real material to work with once a stage
   list is on the board), and deleting 350 lines of reviewed port would be the more expensive
   mistake. Decide before 4b whether they are used or cut.
+- **Every cell is drawn as a disc; nothing is ever a filled square.** Regression fix with a design
+  rule behind it: `paint()` had been filling a lit cell with `ctx.fillStyle = colours.on` before
+  stamping the highlight, which turned every dot on the board into an amber square and defeated
+  the entire premise. `paint()` now erases each cell to the background and then draws the state as
+  a disc. `renderField` had the same bug in its lit-cell pass (it filled with the lit colour to
+  hide the unlit disc underneath a specimen tile), which is why the tiles had square glyphs too.
+- **Inverted is a hole, not a dot.** `INV` draws a background-coloured disc at `radius *
+  INV_OVERDRAW` (1.08) so it fully covers the lit flap beneath it. Hovering a plate lights its
+  interior and knocks the label out as dark gaps in it: the sign inverts, and it stays dots. Same
+  size would have left an amber rim from antialiasing.
+- **Sound came back; the wipe did not.** The user asked for the flip clicks back and for the wipe
+  to stay gone. `SOUND` clicks on every press (`playRowFlip`), `ANIMATE` scatters the occasional
+  lone flip over the empty board - both were judged to be about the field, but as sound and as
+  sparse isolated dots they still work on a bare board. The wipe was not brought back: there is
+  nothing on a bare board to wipe. `startIdleFlips` skips `board.isProtected` cells, so a flip can
+  never land on a sign.
+- **`startMarquee(board, ...)` in `flip-motion.js`.** A banner across the top of the board, text
+  travelling right to left. This is the one animation the brief explicitly rules out ("no
+  scrolling marquee") and it was asked for by name, so it is here with the deviation recorded. The
+  caption is laid out once into lit cells and repeated sideways until the strip is wider than the
+  sign, which makes the wrap seamless with no seam case; each tick repaints only the sign's
+  interior, one column per `stepMs` on a timer rather than a frame callback, because at one column
+  a tick there is nothing to interpolate. `prefersReducedMotion` draws one static screenful.
+- **A control is told from a caption by its border.** Two extra cell states, `GO = 4` and
+  `STOP = 5`, draw from new `--on-go` / `--on-stop` variables; `button({ tone })` picks between
+  `go`, `stop` and the plain amber `label` frame. States rather than a parallel colour channel
+  because `plate` and `stroke` already take a state. The frame **keeps its tone while hovered** -
+  the interior and the label do the inverting, and a border that vanished under the cursor would
+  stop saying what the control does.
+- **No dot text on the bare board.** The one bare `stampText` on the board (`BOARD CONTROLS`) is
+  gone: a scrap of dot text with no plate under it is exactly the noise the plates were introduced
+  to remove.

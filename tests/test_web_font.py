@@ -260,6 +260,128 @@ def test_a_plate_is_the_only_container() -> None:
     )
 
 
+def test_every_cell_is_painted_as_a_disc_and_never_as_a_square() -> None:
+    # The bug this pins: paint() filled a lit cell with `ctx.fillStyle = colours.on`
+    # and then drew the highlight, so every dot on the board came out as an amber
+    # square. A flip-disc display made of squares is not a flip-disc display, and
+    # the gaps between flaps are the whole texture. So: the only fill a cell gets
+    # is the background erase, and the state is then drawn with drawDisc.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    block = text.split("function paint(col, row)", 1)[1].split("function repaintAll", 1)[0]
+    assert "ctx.fillStyle = colours.on" not in block, (
+        "paint() fills a lit cell with the lit colour, which paints a square"
+    )
+    assert "ctx.fillStyle = state === ON" not in block, (
+        "paint() derives the fill colour from the cell state; a lit cell must be "
+        "erased to the background and then drawn as a disc"
+    )
+    assert "drawDisc(ctx, cx, cy, radius, colours.on)" in block, (
+        "a lit cell must be a disc"
+    )
+
+
+def test_an_inverted_cell_is_a_hole_wider_than_the_flap_it_covers() -> None:
+    # Hovering a plate lights its interior and stamps the label INV. If the
+    # inverted disc were the same size as the lit one underneath, antialiasing
+    # would leave an amber rim and the label would read as a smudge.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    block = text.split("if (state === INV)", 1)[1].split("drawDisc(ctx, cx, cy, radius, colours.on)", 1)[0]
+    assert "radius * INV_OVERDRAW" in block, (
+        "an inverted cell must overdraw the flap beneath it"
+    )
+    assert "const INV_OVERDRAW = 1.08;" in text
+
+
+def test_the_lit_cells_of_a_tile_are_discs_too() -> None:
+    # renderField had the same square bug: a lit cell was filled with the lit
+    # colour to erase the unlit disc underneath, which made the lit dots square.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    block = text.split("export function renderField(", 1)[1].split("function drawDisc", 1)[0]
+    assert "ctx.fillStyle = colours.on;\n      ctx.fillRect" not in block, (
+        "renderField fills a lit cell with the lit colour, which paints a square"
+    )
+    assert "drawDisc(ctx, x + pitch / 2, y + pitch / 2, radius, colours.on)" in block
+
+
+def test_the_sound_and_the_idle_flips_are_wired_up_but_the_wipe_is_not() -> None:
+    # Sound was asked for back: the page clicks on every press. The wipe was
+    # explicitly dropped - the board is bare, so a full-field wipe has nothing to
+    # wipe - which is why fullWipe is never called even though it still exists.
+    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
+    assert "from './flip-sound.js'" in page
+    assert "playRowFlip(" in page
+    assert "from './flip-motion.js'" in page
+    assert "startIdleFlips(" in page
+    assert "fullWipe" not in page, "the wipe is meant to be gone from this page"
+    assert "prefersReducedMotion()" in page, "reduced motion must win over the toggle"
+    assert "subscribeSound(" in page
+
+
+def test_a_button_border_says_what_the_control_does() -> None:
+    # Two extra cell states rather than a parallel colour channel, because `plate`
+    # and `stroke` take a state and one more state is cheaper than threading a
+    # colour through every call. A control that acts gets a green frame, one that
+    # stops or is unavailable gets red, and a caption keeps the plain amber one.
+    text = FLIPDISC_FILE.read_text(encoding="utf-8")
+    assert "export const GO = 4;" in text
+    assert "export const STOP = 5;" in text
+    assert "const TONES = { label: ON, go: GO, stop: STOP };" in text
+    assert "pick('--on-go'" in text and "pick('--on-stop'" in text
+    style = STYLE_FILE.read_text(encoding="utf-8")
+    assert "--on-go:" in style and "--on-stop:" in style
+    # The frame keeps its tone while hovered: the interior and the label do the
+    # inverting, and a border that vanished under the cursor would be useless.
+    block = text.split("function render()", 1)[1].split("handle.setEnabled", 1)[0]
+    assert "frame: handle.enabled ? TONES[handle.tone] : DIM," in block
+    assert "const body = lit ? ON : OFF;" in block
+    assert "lit ? INV : ON" in block
+
+
+def test_the_banner_scrolls_and_the_board_owns_no_marquee() -> None:
+    # The one animation the brief rules out, added on request. It lives in
+    # flip-motion.js so flipdisc.js keeps its no-rAF guarantee, and the page never
+    # calls the wipe.
+    motion = MOTION_FILE.read_text(encoding="utf-8")
+    assert "export function startMarquee(" in motion
+    assert "prefersReducedMotion()" in motion, "the banner must honour reduced motion"
+    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
+    assert "startMarquee(board, {" in page
+    assert "const BANNER_TEXT =" in page
+    assert "'CENSORFLOW - THE PREMIERE MUSIC FILE CENSORER AND STEM SEPARATION APPLICATION'" in page
+    # The strip is repeated sideways, which is what makes the wrap seamless.
+    assert "for (let copy = 0; copy < copies; copy += 1)" in motion
+
+
+def test_no_dot_text_sits_on_the_bare_board() -> None:
+    # Every scrap of dot text is on a plate. A bare stampText on the board is
+    # exactly the noise the plates were introduced to remove.
+    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
+    painter = page.split("board.onDraw(", 1)[1].split("});", 1)[0]
+    assert "stampText(" not in painter, (
+        "the control strip still stamps bare text onto the board; put it on a plate"
+    )
+    assert "BOARD CONTROLS" not in page
+
+
+def test_tiles_keep_the_field_that_the_board_dropped() -> None:
+    # The two are deliberately different. The board is bare because a full-window
+    # field is noise behind every label. A specimen tile keeps its field because a
+    # glyph is only legible against the whole matrix - strip the texture and you
+    # hide the exact thing you came to inspect. So: no field on the board, a field
+    # in the tiles.
+    board = FLIPDISC_FILE.read_text(encoding="utf-8")
+    unlit = board.split("if (state === OFF)", 1)[1].split("drawDisc", 1)
+    assert len(unlit) == 2, "the board is painting a field again"
+
+    page = (config.WEB_DIR / "font-test.html").read_text(encoding="utf-8")
+    tile = page.split("function tileCanvas", 1)[1].split("return canvas;", 1)[0]
+    assert "paintField: false" not in tile, (
+        "tileCanvas must paint its field; a specimen without its matrix behind it "
+        "cannot be judged for legibility"
+    )
+    assert "renderField(canvas, {" in tile
+
+
 def test_the_board_has_no_animation_loop() -> None:
     # The board itself stays instant. Motion lives in flip-motion.js, which only
     # the opt-in demo page uses, so a redraw is never gated on a frame callback.
