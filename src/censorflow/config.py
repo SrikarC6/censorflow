@@ -94,8 +94,16 @@ HTTP_USER_AGENT = os.environ.get(
     "CensorFlow/0.1.0 (https://github.com/SrikarC6/censorflow)",
 )
 LYRICS_TIMEOUT_S = 15
-# LRCLIB only returns lyrics when the duration is within +/- this many seconds.
-LRCLIB_DURATION_TOLERANCE_S = 2.0
+# A candidate is only accepted if its duration is within +/- this many seconds of the file.
+LYRICS_DURATION_TOLERANCE_S = 2.0
+# Penalties, in seconds, added to a search candidate's score for disagreeing with the tags.
+# Large enough to lose to any duration drift, small enough to keep the arithmetic readable.
+LYRICS_SEARCH_TITLE_PENALTY_S = 30.0
+LYRICS_SEARCH_ARTIST_PENALTY_S = 300.0
+# Guard rails for the proportional timing estimate of a lyrics-only flag.
+LYRICS_MIN_LINE_S = 0.2
+LYRICS_MIN_WORD_S = 0.08
+LYRICS_MAX_WORD_S = 2.0
 
 # --- Paths ----------------------------------------------------------------------
 def _project_root() -> Path:

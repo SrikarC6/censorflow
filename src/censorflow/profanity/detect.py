@@ -188,6 +188,16 @@ def tokenise(text: str) -> list[str]:
     return _TOKEN_SPLIT.findall(text.lower())
 
 
+def wordlists(
+    extra_path: Path | None = None, allowlist_path: Path | None = None
+) -> tuple[frozenset[str], frozenset[str]]:
+    """The cached (profane, allowed) pair. Use this to pass the lists on to a helper."""
+    return _cached_wordlist(
+        str(extra_path) if extra_path else None,
+        str(allowlist_path) if allowlist_path else None,
+    )
+
+
 @lru_cache(maxsize=4)
 def _cached_wordlist(extra: str | None, allow: str | None) -> tuple[frozenset[str], frozenset[str]]:
     return load_wordlist(Path(extra) if extra else None, Path(allow) if allow else None)
@@ -221,9 +231,10 @@ def detect(
     *,
     extra_path: Path | None = None,
     allowlist_path: Path | None = None,
+    wordlist: tuple[frozenset[str], frozenset[str]] | None = None,
 ) -> list[Flag]:
     """Flag profane words in an ASR transcript. ASR timing is authoritative."""
-    profane, allowed = _cached_wordlist(
+    profane, allowed = wordlist or _cached_wordlist(
         str(extra_path) if extra_path else None,
         str(allowlist_path) if allowlist_path else None,
     )

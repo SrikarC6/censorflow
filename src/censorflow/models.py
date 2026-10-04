@@ -92,3 +92,18 @@ class LyricLine:
             "end": self.end,
             "words": self.words,
         }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> LyricLine:
+        raw = payload.get("words") or []
+        spans = [
+            (float(span[0]), float(span[1]))
+            for span in raw
+            if isinstance(span, (list, tuple)) and len(span) == 2
+        ]
+        return cls(
+            text=str(payload.get("text", "")),
+            start=float(payload.get("start", 0.0)),
+            end=float(payload.get("end", 0.0)),
+            words=spans,
+        )

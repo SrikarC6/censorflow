@@ -14,16 +14,18 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import audio_io, config
+from . import audio_io, config, lyrics
 from .censor import render as render_mod
 from .censor import windows as win
 from .compute.base import ComputeBackend
-from .models import Flag, ProgressFn, Word
+from .metadata import title_from_filename
+from .models import Flag, LyricLine, ProgressFn, TrackInfo, Word
 from .profanity import detect
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,8 @@ class PipelineResult:
     job_dir: Path
     mix_path: Path
     stems: dict[str, Path]
+    track: TrackInfo = field(default_factory=TrackInfo)
+    lyric_lines: list[LyricLine] = field(default_factory=list)
     words: list[Word] = field(default_factory=list)
     flags: list[Flag] = field(default_factory=list)
     windows: list[win.Window] = field(default_factory=list)
@@ -78,6 +82,9 @@ def run_censor(
     if not audio_io.has_audio_stream(source):
         raise audio_io.AudioError(f"{source.name} has no audio stream ffmpeg can read.")
 
+    lookup = lyrics.lookup(source)
+    _write_json(job_dir / "lyrics.json", lookup.to_payload())
+
     _report(on_progress, 1.0, "reading tags and preparing the job")
     original = job_dir / f"original{source.suffix.lower() or '.audio'}"
     if not original.exists():
@@ -102,24 +109,32 @@ def run_censor(
     _write_json(job_dir / "words.json", [word.to_dict() for word in words])
 
     _report(on_progress, 98.0, "checking the transcript")
-    flags = detect.detect(words)
-    _write_json(job_dir / "flags.json", [flag.to_dict() for flag in flags])
+    region_end = len(audio_io.read(mix_path)[0]) / config.SAMPLE_RATE
+    flags = lyrics.merge_flags(words, lookup.lines, region_end=region_end)
+    _write_json(job_dir / "lyrics_flags.json", [flag.to_dict() for flag in flags])
     logger.info(
-        "job %s: %d words, %d flagged (%s)",
+        "job %s: %d words, %d flagged (%s); provenance %s",
         job_dir.name,
         len(words),
         len(flags),
         ", ".join(detect.mask_flags(flags)) or "none",
+        _provenance_summary(flags),
     )
 
     result = PipelineResult(
-        job_dir=job_dir, mix_path=mix_path, stems=stems, words=words, flags=flags
+        job_dir=job_dir,
+        mix_path=mix_path,
+        stems=stems,
+        track=lookup.track,
+        lyric_lines=lookup.lines,
+        words=words,
+        flags=flags,
     )
     if not auto:
         _report(on_progress, 100.0, "ready for review")
         return result
 
-    output_path = _output_path(source, output_dir or job_dir, export_format)
+    output_path = _output_path(source, output_dir or job_dir, export_format, lookup.track)
     stats = render_reviewed(result, output_path, export_format)
     _report(on_progress, 100.0, f"done in {stats.muted_seconds:.1f}s muted")
     return result
@@ -152,11 +167,29 @@ def _render(result: PipelineResult, output_path: Path, export_format: str) -> re
     return stats
 
 
-def _output_path(source: Path, out_dir: Path, export_format: str) -> Path:
-    """`<song name>_clean.<ext>` next to nothing else: one output file, named after the input."""
+def _output_path(
+    source: Path, out_dir: Path, export_format: str, track: TrackInfo | None = None
+) -> Path:
+    """`<song name>_clean.<ext>`: one output file, named after the song rather than the file.
+
+    `Path.stem` is not usable here: `Path("03. Carti.m4a").stem` is `"03"`, because it
+    treats `". Carti"` as the suffix. `metadata.title_from_filename` strips only a known
+    audio extension, and the track title wins when the tags gave us one.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir / f"{source.stem}_clean.{export_format.lstrip('.').lower()}"
+
+    name = (track.title if track and track.title else None) or title_from_filename(source)
+    if not name:
+        name = source.stem
+    name = _safe_filename(name)
+    return out_dir / f"{name}_clean.{export_format.lstrip('.').lower()}"
+
+
+def _safe_filename(name: str) -> str:
+    """Nothing that would confuse a shell or a filesystem, and never empty."""
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
+    return cleaned or "output"
 
 
 def _assert_stem_lengths(mix_path: Path, stems: dict[str, Path]) -> None:
@@ -171,6 +204,16 @@ def _assert_stem_lengths(mix_path: Path, stems: dict[str, Path]) -> None:
             )
         else:
             logger.debug("%s stem matches the mix (%d frames)", name, frames)
+
+
+def _provenance_summary(flags: list[Flag]) -> str:
+    """How the flags were found, for the log line. No word text, so it is safe to print."""
+    if not flags:
+        return "none"
+    counts: dict[str, int] = {}
+    for flag in flags:
+        counts[flag.source] = counts.get(flag.source, 0) + 1
+    return ", ".join(f"{counts[key]} {key}" for key in sorted(counts))
 
 
 def _write_json(path: Path, payload: object) -> None:

@@ -29,11 +29,11 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
 ## Phase 2 - metadata, lyrics, merging
 
-- [ ] `metadata.py` (mutagen + filename fallback + CLI overrides)
-- [ ] `lyrics/lrclib.py`, `lyrics/synced.py`, `lyrics/merge.py`
-- [ ] Timeouts, try/except, gitignored cache; lookup failure never fails a job
-- [ ] Tests: merge with fake lyric data
-- [ ] Provenance reported per flag; job without lyrics still completes
+- [x] `metadata.py` (mutagen + filename fallback + CLI overrides)
+- [x] `lyrics/lrclib.py`, `lyrics/synced.py`, `lyrics/merge.py`
+- [x] Timeouts, try/except, gitignored cache; lookup failure never fails a job
+- [x] Tests: merge with fake lyric data
+- [x] Provenance reported per flag; job without lyrics still completes
 
 ## Phase 3 - server and jobs
 

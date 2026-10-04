@@ -141,3 +141,77 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
   explicit clip the exported file differs from the mix outside every censor window by up to
   5.1e-2, which would violate rule 1. The count is reported as `RenderStats.clipped_samples`
   so the CLI can say so out loud rather than hide it.
+
+## Lyrics lookup (Phase 2)
+
+- `album_name` is deliberately **not** sent to LRCLIB `/api/get`.
+  Reason: measured, the local album tags are frequently wrong (`06 M3tamorphosis.m4a` says
+  "Whole Lotta Red", `03 Ni__as In Paris.m4a` says "Watch The Throne (Deluxe)"), and LRCLIB
+  404s when the album does not match. Sending `artist_name` + `track_name` + `duration`
+  matched **5 of 5** supplied songs on the first attempt. Withholding a field that is
+  often wrong beats trusting it.
+  Source: https://lrclib.net/docs
+- **Duration is the primary match filter.** LRCLIB has multiple records with the same
+  title/artist (live, remix, sped-up), and `duration` is the cheapest reliable discriminator.
+  A 404 caused by a duration mismatch is retried **once without `duration`** rather than
+  treated as a failure, because a ±2 s tolerance can miss by a second.
+- Artist credits are split and tried in order (`primary_artist` first), because every supplied
+  song has a multi-artist tag and LRCLIB expects one artist.
+  Matching is accent-insensitive and punctuation-insensitive: LRCLIB returns `JAŸ-Z` where
+  the file says `JAY-Z`.
+- `/api/search` returns at most 20 unpaginated full records, so it is only used as a fallback
+  and scored with `config.LYRICS_SEARCH_{TITLE,ARTIST}_PENALTY_S` plus duration drift;
+  anything beyond `LYRICS_DURATION_TOLERANCE_S` is rejected outright.
+- **Lyrics are deliberately not part of the `ComputeBackend` seam.**
+  Reason: `AGENTS.md` defines the seam as exactly `separate()` and `transcribe()` and says a
+  future remote worker runs "the same two stages". Adding a lyrics method would change that
+  contract. The lookup stays an inline, local `httpx` call in `pipeline.py`, so a remote
+  backend still only offloads the two ML stages. `workers/fetch_lyrics.py` exists purely as a
+  standalone debugging entry point.
+- Raw responses are cached at `config.LYRICS_CACHE_DIR/<24hex>.json` (sha256 of
+  version + endpoint + artist + title), which is gitignored. The cache makes re-runs instant
+  and keeps the app usable offline after the first fetch.
+- A lookup failure **never fails a job**: `lyrics.fetch()` catches `httpx.HTTPError`, 404s,
+  non-200 and non-JSON bodies, and returns no record; `lyrics.lookup()` never raises.
+
+## Lyrics timing (Phase 2)
+
+- **`lyricsfile` YAML is parsed, not LRC**, because it carries `start_ms` **and** `end_ms`
+  per line, which makes the proportional in-line estimate much tighter. Verified against real
+  records: 85 / 132 / 104 / 95 / 60 timed lines across the five supplied songs.
+- **`metadata.start_ms` is not used.** Real `lyricsfile` metadata only contains
+  `duration_ms`; the code that applied an offset from it was removed rather than left in
+  with a guessed sign.
+- LRC `[offset:...]` is logged and ignored. The sign convention differs between players and
+  could not be verified from a primary source, and a wrong global shift would misplace every
+  window. No real LRCLIB record returned an `[offset:]` tag either.
+- **Untimed plain lyrics are ignored**, on purpose. A window placed with no timing information
+  at all would silence an arbitrary part of the song; missing a word is recoverable in the
+  review screen, silencing the wrong 2 seconds is not.
+- Word-level timing is accepted in **both** shapes (`[start_ms, end_ms]` pairs and
+  `{start_ms, end_ms}` mappings) because no format is specified. In practice
+  `hasWordSync` is **false for every real track tested**, so this path is currently dead code
+  kept for the day LRCLIB's community word-sync records become common.
+- When a line has no word timing, a flagged word's span is estimated **proportionally to word
+  length** (`max(len(token), 2)`), clamped to `LYRICS_MIN_WORD_S`/`LYRICS_MAX_WORD_S`.
+  Reason: even division systematically under-covers long words and over-covers short ones
+  like "a", and an estimate is all that is available here. Those flags are marked
+  `approx=True` and shown as "verify" in the UI.
+
+## Metadata (Phase 2)
+
+- `metadata._read_tags` uses a **hand-written key map** (`©art`/`artist`/`tpe1`,
+  `©nam`/`title`/`tit2`, `©alb`/`album`/`talb`) instead of `mutagen.File(path, easy=True)`.
+  Reason: verified, `easy=True` raises `TypeError: ID3.load() got an unexpected keyword
+  argument 'easy'` on ID3-backed formats (WAV, AIFF), and MP4 still returns **lists** even
+  with `easy=True`. The hand-rolled reader unwraps ID3 frames' `.text` and joins lists.
+  Source: `inspect.signature` + live test on 1.48.1
+- Filenames are **not** parsed with `Path.stem`. Verified: `Path("3. Carti.m4a").stem` is
+  `"3"`, because pathlib treats `". Carti"` as the suffix. The audio extension is stripped
+  from an explicit extension list instead, then track-number prefixes and decorations
+  (`Parens`Remastered` etc.) are removed.
+- `title_from_filename` returns `None` when nothing but digits remains (`"01.mp3"`), so a
+  bare track number is never sent to LRCLIB as a title.
+- `primary_artist` splits on `feat.`, `ft.`, `featuring`, `with`, `vs.`, `,`, `;`, `/`, `&`
+  and `x`, taking the first credit. Known and accepted limitation: it also splits a genuine
+  artist name containing `&` (for example `Simon & Garfunkel`).
