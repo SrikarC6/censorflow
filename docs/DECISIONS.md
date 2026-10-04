@@ -746,6 +746,23 @@ Commits up to and including this point: `32cb486` phase 0, `3f5688f` phase 1, `3
   moving dots. Orange is cell state `ORANGE` (`--ball`). Source: user request
   2026-10-04.
 
+- The processing screen's empty side is the same stick figure (`figureDots`)
+  dribbling an orange basketball, jumping about 1.7 body-heights, dunking, and
+  hanging from an orange rim for 36 ticks (just over 3 s at 90 ms). The ball is
+  a seamed disc, not a word. A `setTimeout` repaints only the moving dots.
+  `prefers-reduced-motion` holds the hang. Source: user request 2026-10-04.
+
+- The result screen plays a 2v2 in the space under the buttons. Two amber figures
+  and two blue figures (`BLUE` cell state, `--info`) share one orange basketball
+  and a hoop at each end, with the rim about half a body higher than a short
+  jump. The court floor is three rows above the audio player's top. A jump shot
+  keeps the shooting hand a few cells from the body and lets the ball arc in on
+  its own. Each possession's finish is an affine hash of its index (not
+  `Math.random`, so a redraw cannot reshuffle the trip): 8 of every 20 are twos,
+  8 are longer threes, 3 are layups, and 1 is a rim hang in the dunk pose.
+  `figureDots` takes a `face` of -1 so a player running left uses the same stick
+  figure. A `setTimeout` repaints movers only. Source: user request 2026-10-04.
+
 - The title is a scrolling banner at the top of every screen (`CENSORFLOW`, 40-dot
   gap between repeats), and signs no longer grow to fill the window. `fitText`
   picked scale 3, and scale2x turned that into a 4x bitmap stepped on a 3x grid,

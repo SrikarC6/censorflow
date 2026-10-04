@@ -18,7 +18,7 @@ const FLY = 10;
 const LAND = 5;
 const SINK = 8;
 const BACK_STEP = 4;
-const HEAD_R = 5;
+export const HEAD_R = 5;
 /** Hand distance ahead of the body while carrying and at release. */
 const ARM = 5;
 /** Forward drift while airborne. */
@@ -89,9 +89,17 @@ export function planLayup(base, glyph) {
   return { base, glyph, halfW, halfH, jump, takeoff, land, release, shot, lift, run, up, fly, sink, back, total };
 }
 
-/** Stick figure at column `x`, raised `lift` cells, legs in `legs` pose. */
-function figureDots(base, x, lift, legs, hand) {
+/**
+ * Stick figure at column `x`, raised `lift` cells, legs in `legs` pose.
+ *
+ * `hand` is the forward hand, in board cells. `grip`, when passed, is the other
+ * hand — the rim hold uses it so both arms stay on a fixed point while the body
+ * swings. `face` is 1 toward the right and -1 toward the left. The layup leaves
+ * both empty and keeps the pose's usual back arm.
+ */
+export function figureDots(base, x, lift, legs, hand, grip = null, face = 1) {
   const { floor, body } = base;
+  const s = face < 0 ? -1 : 1;
   const headY = floor - body + HEAD_R - lift;
   const shoulderY = headY + HEAD_R + 2;
   const hipY = floor - Math.round(body * 0.36) - lift;
@@ -104,20 +112,26 @@ function figureDots(base, x, lift, legs, hand) {
   }
   for (let y = shoulderY; y <= hipY; y += 1) pts.push([x, y]);
   const feet = {
-    stand: [[x - 4, foot], [x + 4, foot]],
-    strideA: [[x + 5, foot], [x - 4, foot - 2]],
-    strideB: [[x - 3, foot], [x + 3, foot - 2]],
-    tuck: [[x - 1, foot], [x + 5, foot - 4]],
+    stand: [[x - 4 * s, foot], [x + 4 * s, foot]],
+    strideA: [[x + 5 * s, foot], [x - 4 * s, foot - 2]],
+    strideB: [[x - 3 * s, foot], [x + 3 * s, foot - 2]],
+    tuck: [[x - 1 * s, foot], [x + 5 * s, foot - 4]],
+    hangA: [[x - 2 * s, foot - 1], [x + 3 * s, foot]],
+    hangB: [[x - 3 * s, foot], [x + 2 * s, foot - 1]],
   }[legs];
-  const backHand = {
-    stand: [x - 6, hipY],
-    strideA: [x - 6, shoulderY + 3],
-    strideB: [x - 4, hipY + 1],
-    tuck: [x - 6, shoulderY - 2],
-  }[legs];
-  pts.push(...segment(x - 2, shoulderY, backHand[0], backHand[1]));
+  const backHand = grip
+    ? [Math.round(grip.x), Math.round(grip.y)]
+    : {
+        stand: [x - 6 * s, hipY],
+        strideA: [x - 6 * s, shoulderY + 3],
+        strideB: [x - 4 * s, hipY + 1],
+        tuck: [x - 6 * s, shoulderY - 2],
+        hangA: [x - 5 * s, shoulderY - 12],
+        hangB: [x - 4 * s, shoulderY - 12],
+      }[legs];
+  pts.push(...segment(x - 2 * s, shoulderY, backHand[0], backHand[1]));
   feet.forEach(([fx, fy]) => pts.push(...segment(x, hipY, fx, fy)));
-  pts.push(...segment(x + 1, shoulderY, Math.round(hand.x), Math.round(hand.y)));
+  pts.push(...segment(x + s, shoulderY, Math.round(hand.x), Math.round(hand.y)));
   return pts;
 }
 

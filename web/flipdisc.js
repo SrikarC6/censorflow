@@ -32,8 +32,10 @@ export const OFF = 0;
 export const ON = 1;
 export const INV = 2;
 export const DIM = 3;
-/** Orange disc used for the welcome-scene thrown word. */
+/** Orange disc used for the basketball. */
 export const ORANGE = 4;
+/** Blue disc for the second team on the result-screen game. */
+export const BLUE = 5;
 
 /** The semantic tones a plate border can carry. */
 export const TONE_GO = 'go';

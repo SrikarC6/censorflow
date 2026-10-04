@@ -399,6 +399,8 @@ def test_every_name_app_js_imports_is_actually_exported() -> None:
         "session.js",
         "atmosphere.js",
         "welcome-scene.js",
+        "hoop-scene.js",
+        "game-scene.js",
     ):
         exported |= set(re.findall(r"export (?:async )?function (\w+)", _read(name)))
         exported |= set(re.findall(r"export class (\w+)", _read(name)))
@@ -480,6 +482,60 @@ def test_the_glow_is_a_few_elements_and_not_a_canvas_loop() -> None:
     style = (config.WEB_DIR / "style.css").read_text(encoding="utf-8")
     assert "glow-breathe" in style
     assert "animation: none !important" in style
+
+
+def test_the_processing_screen_plays_the_same_figure_at_a_hoop() -> None:
+    # The stage list stays; the empty side is a dunk, not another swear.
+    body = _read("screens.js").split("ui.register('processing'", 1)[1].split("\n});", 1)[0]
+    assert "syncHoop(" in body
+    assert "hideHoop()" in body
+    scene = _read("hoop-scene.js")
+    shot = _read("hoop-shot.js")
+    assert "from './hoop-shot.js'" in scene
+    assert "from './welcome-layup.js'" in shot
+    assert "figureDots" in shot
+    assert "ORANGE" in shot
+    assert "setTimeout" in scene
+    assert "requestAnimationFrame" not in scene
+    assert "setInterval" not in scene
+    low = (scene + shot).lower()
+    for banned in ("f*ck", "f**k", "sh*t", "b*tch", "nigg"):
+        assert banned not in low
+    tick = int(re.search(r"TICK_MS = (\d+)", shot).group(1))
+    hang = int(re.search(r"const HANG = (\d+)", shot).group(1))
+    assert hang * tick >= 2500
+    figure = _read("welcome-layup.js")
+    assert "export function figureDots" in figure
+    assert "hangA" in figure
+
+
+def test_the_result_screen_plays_a_two_on_two() -> None:
+    body = _read("screens.js").split("ui.register('result'", 1)[1].split("\n});", 1)[0]
+    assert "syncGame(" in body
+    assert "hideGame()" in body
+    assert "playerRow" in body
+    scene = _read("game-scene.js")
+    shot = _read("game-shot.js")
+    assert "figureDots" in shot
+    assert "ballCells" in scene
+    assert "ORANGE" in shot
+    assert "BLUE" in shot
+    assert shot.count("BLUE") >= 1
+    assert "ON" in shot
+    assert "setTimeout" in scene
+    assert "requestAnimationFrame" not in scene
+    assert "setInterval" not in scene
+    variants = _read("game-variants.js")
+    assert "'hang'" in variants
+    assert "'layup'" in variants
+    assert "'three'" in variants
+    assert "'two'" in variants
+    assert "Math.random" not in shot
+    assert "Math.random" not in scene
+    assert "Math.random" not in variants
+    paint = _read("board-paint.js")
+    assert "state === BLUE" in paint
+    assert "colours.info" in paint
 
 
 def test_the_welcome_scene_moves_words_without_repainting_the_board() -> None:

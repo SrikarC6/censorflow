@@ -5,6 +5,9 @@
  * them. `status` is the same object `say` writes, so a redraw sees the latest line.
  */
 import { showWelcome } from './atmosphere.js';
+import { textCols } from './font5x7.js';
+import { hideGame, syncGame } from './game-scene.js';
+import { hideHoop, syncHoop } from './hoop-scene.js';
 import { syncScene } from './welcome-scene.js';
 import { TONE_GO, TONE_PLAIN } from './flipdisc.js';
 import { state } from './ui.js';
@@ -101,6 +104,9 @@ ui.register('mode', {
 const STAGES = ['fetching_lyrics', 'decoding', 'separating', 'transcribing', 'detecting'];
 
 ui.register('processing', {
+  leave() {
+    hideHoop();
+  },
   paint(h) {
     const snapshot = state.snapshot || {};
     let row = h.sign('WORKING', { row: h.origin(), centre: false });
@@ -122,6 +128,19 @@ ui.register('processing', {
     row += 3;
     h.meter(snapshot.message || 'starting', (snapshot.pct || 0) / 100, { row });
     h.notice(status.text, status.tone);
+    const widest = Math.max(
+      textCols('WORKING', 2),
+      ...STAGES.map((stage) => textCols(`> ${stageName(stage)}`, 2)),
+    );
+    const message = String(snapshot.message || 'starting');
+    const meter = Math.min(h.cols() - 8, Math.max(40, textCols(message, 1) + 4));
+    const gutter = Math.max(widest + 10, meter + 6);
+    syncHoop({
+      col: gutter,
+      row: h.origin(),
+      cols: Math.max(0, h.cols() - gutter - 1),
+      rows: Math.max(0, h.bottom() - h.origin()),
+    });
   },
 });
 
@@ -154,6 +173,9 @@ ui.register('result', {
     overlay.append(player);
     state.player = player;
   },
+  leave() {
+    hideGame();
+  },
   paint(h) {
     const stats = state.render || {};
     let row = h.sign('DONE', { row: h.top(BLOCK.result) });
@@ -169,13 +191,12 @@ ui.register('result', {
       }
     }
     row += 4;
+    const controls = [playOriginal, playClean, download, againButton];
     if (h.tight(BLOCK.result)) {
       // There is not room for the figures and three rows of controls. The figures
       // are the first thing to go - they are also in the status line - and all four
       // buttons share one row so every one of them can be reached.
-      h.buttonRow([playOriginal, playClean, download, againButton], row, {
-        col: h.centre([playOriginal, playClean, download, againButton]),
-      });
+      h.buttonRow(controls, row, { col: h.centre(controls) });
     } else {
       h.buttonRow([playOriginal, playClean], row, { col: h.centre([playOriginal, playClean]) });
       const below = row + Math.max(playOriginal.height, playClean.height) + 3;
@@ -183,6 +204,15 @@ ui.register('result', {
       h.buttonRow([againButton], below + download.height + 3, { col: h.centre([againButton]) });
     }
     h.notice(status.text, status.tone);
+    const underButtons = Math.max(...controls.map((handle) => handle.row + handle.height));
+    const playerTop = playerRow(h);
+    const floor = Math.min(h.bottom(), playerTop) - 3;
+    syncGame({
+      col: 1,
+      row: underButtons + 2,
+      cols: Math.max(0, h.cols() - 2),
+      rows: Math.max(0, floor - (underButtons + 2)),
+    });
   },
 });
 
@@ -196,5 +226,13 @@ ui.register('failed', {
 
 function stageName(stage) {
   return stage.replace(/_/g, ' ').toUpperCase();
+}
+
+/** First grid row of the audio player, so the court floor can sit above it. */
+function playerRow(h) {
+  const node = state.player;
+  const rect = node && node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+  if (rect && rect.height > 0) return Math.floor(rect.top / h.pitch());
+  return h.bottom();
 }
 }

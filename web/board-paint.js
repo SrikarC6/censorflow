@@ -6,7 +6,7 @@
  */
 import { drawDisc, drawHighlight } from './board-field.js';
 import { layoutFlipCells } from './font5x7.js';
-import { DIM, INV, OFF, ON, ORANGE, TONE_GO, TONE_INFO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
+import { BLUE, DIM, INV, OFF, ON, ORANGE, TONE_GO, TONE_INFO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
 
 /** Inverted flaps overdraw the lit disc so a knocked-out letter stays a hole. */
 const INV_OVERDRAW = 1.16;
@@ -40,6 +40,10 @@ export function attachPaint(env) {
     }
     if (state === ORANGE) {
       drawDisc(env.ctx, cx, cy, env.radius, env.colours.ball);
+      return;
+    }
+    if (state === BLUE) {
+      drawDisc(env.ctx, cx, cy, env.radius, env.colours.info);
       return;
     }
     if (state === INV) {

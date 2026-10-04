@@ -5,6 +5,8 @@
  * screen lives in review.js. A button is created once, here, and placed by a painter.
  */
 import { hideWelcome, mountAtmosphere, syncBanner } from './atmosphere.js';
+import { hideGame, mountGame } from './game-scene.js';
+import { hideHoop, mountHoop } from './hoop-scene.js';
 import { hideScene, mountScene } from './welcome-scene.js';
 import { TONE_GO, TONE_INFO, TONE_PLAIN } from './flipdisc.js';
 import { beginModelDownload } from './model.js';
@@ -23,6 +25,8 @@ const ui = createUi({ canvas, overlay });
 const { board } = ui;
 mountAtmosphere(board);
 mountScene(board);
+mountHoop(board);
+mountGame(board);
 // After the screen paints, so a welcome redraw has already recorded the slogan.
 board.onDraw(() => {
   syncBanner();
@@ -30,6 +34,8 @@ board.onDraw(() => {
     hideWelcome();
     hideScene();
   }
+  if (ui.screen !== 'processing') hideHoop();
+  if (ui.screen !== 'result') hideGame();
 });
 
 /** The status line under everything. `say` writes this object; painters read it. */
