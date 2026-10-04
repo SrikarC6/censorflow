@@ -218,3 +218,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- CensorFlow ---
+# macOS cruft
+.DS_Store
+# Real audio: never commit copyrighted material
+samples/
+# Job scratch and worker stderr logs
+logs/
+out/
+# CensorFlow home (jobs, lyrics cache)
+.censorflow/
+# Ignored copies of fetched lyrics (local cross-check only)
+data/lyrics_cache/
+# Test / spike scratch
+tmp/
+*.flac
+*.wav
+*.mp3
+*.m4a
+*.aiff
+*.aif
