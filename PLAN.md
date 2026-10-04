@@ -46,6 +46,7 @@ Living checklist. Update as work proceeds. See `AGENTS.md` for standing rules.
 
 - [x] 4a: `flipdisc.js`, `font5x7.js`, `flip-motion.js`, `flip-sound.js`, `web/style.css`, `web/font-test.html`
   - serif 7x9 default set, denser dots, single dot layer, animation + flip sounds behind toggles
+  - sans is the default again (serif opt-in behind FONT: SERIF); buttons verified clickable
   - **awaiting the user's eyeball check**
 - [ ] 4b: Welcome, Mode, Processing, Result
 - [ ] 4c: Review screen

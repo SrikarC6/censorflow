@@ -342,3 +342,30 @@ any screen was built. Decisions that outlive the test page:
 - **Body copy stays monospace** while the dot matrix is serif. Reason: the dense HTML overlay
   (transcript, flag table) has to be selectable and its timestamp columns have to line up;
   a dot-matrix serif cannot do either.
+
+## Web UI: sans restored, buttons fixed
+
+- **Sans is the default again.** The 7x9 serif set was tried because a serif does not fit
+  5x7, and it looked handsome at title size - but at reading size its `A` and `W` were hard to
+  make out, so it went back to being opt-in behind the `FONT: SERIF` button. It is still in the
+  file rather than deleted, because at scale 3-4 it is genuinely handsome for a title; say the
+  word and it goes. The sans set gained exactly one change: `W`'s apex now reaches row 2, which
+  stops it flattening toward `U` and makes it the vertical mirror of `M`. Nothing else in the
+  classic 5x7 face was touched - it is already near-optimal and inventing more changes would
+  only make it worse.
+- **`glyphFor`'s fallback must come from the active set.** It was `const QUESTION = SERIF_GLYPHS['?']`,
+  so with sans active every unmapped character would have stamped a 7x9 glyph into a 5x7 cell.
+  It is now `const QUESTION = '?'` and the lookup ends `glyphs[QUESTION]`, which resolves per
+  set. A test asserts this, because the bug is invisible until something unmapped is drawn.
+- **`.fonttest` must not capture pointer events.** The page is one fixed full-viewport sheet over
+  the canvas, and it reserves its top padding as exactly the band the dot-drawn buttons live in.
+  Without `pointer-events: none` on the sheet it swallowed every click and the buttons silently
+  did nothing. `.fonttest > *` opts back in so the prose stays selectable.
+- **`board.handles()` and `board.cellAt(x, y)`** were added. The rects are needed because a
+  screen will drive a button from somewhere other than a click on it (the review screen flips a
+  checkbox when a word is censored), and `cellAt` lets a press be resolved without synthesising
+  a pointer event.
+- **There is still no JavaScript test harness.** Two button bugs got through because nothing
+  executed `flipdisc.js`; both are now pinned by static assertions in `tests/test_web_font.py`,
+  which is a weak substitute. A DOM stub plus Node is Phase 5 work, and it should happen before
+  4b adds four screens of interaction.

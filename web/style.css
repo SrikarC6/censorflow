@@ -183,6 +183,14 @@ button.html:focus-visible {
   background: transparent;
   padding: calc(var(--demo-reserve, 228px) + var(--pad, 4px)) var(--pad, 4px)
     calc(var(--pad, 4px) * 24);
+  /* This element is a full-viewport sheet sitting over the board, and the band it
+   * reserves as top padding is where the dot-drawn buttons live. Without this it
+   * eats every click aimed at them. Its own children opt back in below. */
+  pointer-events: none;
+}
+
+.fonttest > * {
+  pointer-events: auto;
 }
 
 .fonttest h1 {

@@ -105,13 +105,26 @@ def test_the_two_sets_are_not_the_same_table() -> None:
     assert tables["SERIF_GLYPHS"] != tables["SANS_GLYPHS"]
 
 
-def test_the_serif_set_is_the_default() -> None:
+def test_the_sans_set_is_the_default() -> None:
+    """The 7x9 serif was tried as the default and rejected: its A and W were hard
+    to read at dot pitch 4. The 5x7 sans is clearer, so it is what renders."""
     source = FONT_FILE.read_text(encoding="utf-8")
-    assert 'DEFAULT_FONT = \'serif\'' in source or 'DEFAULT_FONT = "serif"' in source, (
-        "AGENTS.md now wants the serif face as the default dot-matrix font"
+    assert 'DEFAULT_FONT = \'sans\'' in source or 'DEFAULT_FONT = "sans"' in source, (
+        "the app must render the sans set by default"
     )
-    assert "let current = SERIF;" in source, (
-        "the active font must start at the serif set, not the sans one"
+    assert "let current = SANS;" in source, (
+        "the active font must start at the sans set, not the serif one"
+    )
+
+
+def test_the_fallback_glyph_comes_from_the_active_set() -> None:
+    """A hardcoded serif '?' would drop a 7x9 glyph into a 5x7 cell."""
+    source = FONT_FILE.read_text(encoding="utf-8")
+    assert "glyphs[QUESTION]" in source, (
+        "glyphFor must take its fallback '?' from the set it was asked for"
+    )
+    assert "SERIF_GLYPHS['?']" not in source, (
+        "the fallback glyph must not be pinned to the serif table"
     )
 
 
@@ -250,7 +263,22 @@ def test_the_dots_are_small_and_dense() -> None:
     pitch = int(re.search(r"export const DEFAULT_PITCH = (\d+);", source).group(1))
     assert fill <= 0.6, f"DISC_FILL {fill} closes the gaps; the field will read as squares"
     assert fill >= 0.4, f"DISC_FILL {fill} is too sparse to read as a dot field"
-    assert pitch <= 5, f"DEFAULT_PITCH {pitch} is not dense enough for a serif face"
+    assert pitch <= 5, f"DEFAULT_PITCH {pitch} is not dense enough to read as dots"
+
+
+def test_the_stylesheet_lets_clicks_through_to_the_board() -> None:
+    # Regression: the page is one fixed, full-viewport sheet sitting over the canvas,
+    # and it reserves its top padding as the band the dot-drawn buttons live in. With
+    # no `pointer-events: none` on the sheet it swallows every one of those clicks
+    # and the buttons silently do nothing.
+    css = STYLE_FILE.read_text(encoding="utf-8")
+    block = css.split(".fonttest {", 1)[1].split("}", 1)[0]
+    assert "pointer-events: none" in block, (
+        ".fonttest covers the board and must not capture pointer events"
+    )
+    assert ".fonttest > * {" in css and "pointer-events: auto" in css, (
+        "the sheet's own children must opt back in, or its text becomes unselectable"
+    )
 
 
 def test_the_stylesheet_defines_the_flip_disc_palette() -> None:
@@ -258,5 +286,25 @@ def test_the_stylesheet_defines_the_flip_disc_palette() -> None:
     for name in ("--on", "--off", "--bg", "--on-hi"):
         assert f"{name}:" in css, f"style.css does not define {name}"
     assert "font-family: var(--mono)" in css, (
-        "body copy must stay monospace; only the dot matrix is the serif face"
+        "body copy must stay monospace; only the dot matrix is a bitmap face"
     )
+
+
+def test_a_button_keeps_the_callback_it_was_given() -> None:
+    # Regression: `button({ ..., onClick })` destructured `onClick` and then built a
+    # handle that never stored it, so `target.onClick?.(target)` in the pointerup
+    # handler was a silent no-op and every button on the board looked dead.
+    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    body = source.split("function button({", 1)[1].split("\n  function buttonAt", 1)[0]
+    assert "onClick," in body, "the handle literal must store onClick, or presses do nothing"
+    assert "target.onClick?.(target)" in source, (
+        "the pointerup handler must actually call the stored callback"
+    )
+
+
+def test_the_board_exposes_its_button_rects_and_hit_test() -> None:
+    # Screens drive buttons from outside a click (the review screen flips a checkbox
+    # when a word is censored), so the rects have to be readable, and a press has to
+    # be resolvable to a cell without a real pointer event.
+    source = FLIPDISC_FILE.read_text(encoding="utf-8")
+    assert "handles()" in source and "cellAt(clientX, clientY)" in source

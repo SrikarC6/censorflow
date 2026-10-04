@@ -52,7 +52,7 @@ const SANS_GLYPHS = {
   T: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
   U: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
   V: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
-  W: [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
+  W: [0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b10101, 0b01010],
   X: [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
   Y: [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
   Z: [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
@@ -214,15 +214,15 @@ const SERIF_GLYPHS = {
 const SANS = { name: 'sans', cols: 5, rows: 7, glyphs: SANS_GLYPHS };
 const SERIF = { name: 'serif', cols: 7, rows: 9, glyphs: SERIF_GLYPHS };
 
-/** Every set, by name. Serif is the default the app renders with. */
+/** Every set, by name. Sans is the default the app renders with. */
 export const FONTS = { serif: SERIF, sans: SANS };
-export const DEFAULT_FONT = 'serif';
+export const DEFAULT_FONT = 'sans';
 
-let current = SERIF;
+let current = SANS;
 
 /** Switches the set used when a caller does not name one. Returns the set. */
 export function setFont(name) {
-  current = FONTS[name] ?? SERIF;
+  current = FONTS[name] ?? SANS;
   return current;
 }
 
@@ -246,7 +246,7 @@ export function glyphSize(font) {
   return { cols: set.cols, rows: set.rows };
 }
 
-const QUESTION = SERIF_GLYPHS['?'];
+const QUESTION = '?';
 
 /**
  * Rows of a glyph, uppercased, with `?` for anything the set does not carry.
@@ -258,7 +258,7 @@ const QUESTION = SERIF_GLYPHS['?'];
 export function glyphFor(char, font) {
   const glyphs = getFont(font).glyphs;
   const key = String(char);
-  return glyphs[key] ?? glyphs[key.toUpperCase()] ?? QUESTION;
+  return glyphs[key] ?? glyphs[key.toUpperCase()] ?? glyphs[QUESTION];
 }
 
 /** True when the set has a real glyph for `char` (so callers can warn). */

@@ -15,10 +15,11 @@
     <main class="fonttest">
       <h1>Dot-matrix display font</h1>
       <p class="note" id="intro">
-        Every glyph in <code>web/font5x7.js</code>. Two sets: <b>serif</b> (default,
-        7x9) and <b>sans</b> (5x7). Serif is the default because a 7x9 cell can
-        afford a stem and a flare, which is what actually reads as a serif at this
-        size. Gaps are 1 dot between letters and 2 between words. Uppercase-only:
+        Every glyph in <code>web/font5x7.js</code>. Two sets: <b>sans</b> (default,
+        5x7) and <b>serif</b> (7x9). Sans is the default: at this dot size it is
+        the clearer of the two, and the 7x9 serif was tried and dropped because its
+        A and W were hard to read. Press <b>FONT: SERIF</b> to compare them. Gaps
+        are 1 dot between letters and 2 between words. Uppercase-only:
         <code>glyphFor()</code> uppercases its input, so lowercase renders as
         uppercase.
       </p>

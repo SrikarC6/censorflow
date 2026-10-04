@@ -268,6 +268,7 @@ export function createBoard(canvas, options = {}) {
       row,
       label,
       scale,
+      onClick,
       enabled: true,
       hovered: false,
       pressed: false,
@@ -415,14 +416,36 @@ export function createBoard(canvas, options = {}) {
       };
     },
     redraw,
+    /**
+     * A snapshot of every registered button's grid rect. Screens need this to
+     * drive a button from somewhere other than a click on it.
+     */
+    handles() {
+      return buttons.map(({ col, row, width, height, label, enabled }) => ({
+        col,
+        row,
+        width,
+        height,
+        label,
+        enabled,
+      }));
+    },
+    /** The grid cell under a screen point, or null when it misses the board. */
+    cellAt(clientX, clientY) {
+      return cellFromPoint(clientX, clientY);
+    },
   };
 
   // One listener for the whole board rather than one per button.
-  function cellFromEvent(event) {
+  function cellFromPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    const col = Math.floor((event.clientX - rect.left) / pitch);
-    const row = Math.floor((event.clientY - rect.top) / pitch);
+    const col = Math.floor((clientX - rect.left) / pitch);
+    const row = Math.floor((clientY - rect.top) / pitch);
     return inside(col, row) ? { col, row } : null;
+  }
+
+  function cellFromEvent(event) {
+    return cellFromPoint(event.clientX, event.clientY);
   }
 
   function updateHover(next) {
