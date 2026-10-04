@@ -56,6 +56,10 @@ SEPARATION_QUALITY: dict[str, dict[str, float]] = {
 PAD_PRE_MS = 20
 PAD_POST_MS = 40
 MIN_WINDOW_MS = 90
+# The ASR-plus-lyrics clock lands about a second after the sung onset.
+# Every window starts this much earlier than that detection. The end stays,
+# so the mute covers the word instead of sliding off the front of it.
+CENSOR_LEAD_MS = 1000
 # Windows closer than this are merged into one.
 MERGE_GAP_MS = 30
 FADE_MS = 10
@@ -113,8 +117,10 @@ LYRICS_SEARCH_ARTIST_PENALTY_S = 300.0
 LYRICS_MIN_LINE_S = 0.2
 LYRICS_MIN_WORD_S = 0.08
 LYRICS_MAX_WORD_S = 2.0
-# Sequence-align ASR tokens onto lyric lines, then warp times onto each line's
-# start/end. Parakeet is the tokeniser; the lyric line is the clock.
+# Sequence-align ASR tokens onto lyric lines. Warp a line onto the lyric clock
+# only when the line is about as long as the sung phrase. A line that is much
+# longer (a held lyric card over a few bars) must not stretch the phrase across
+# the gap: that lands the mute off the syllable.
 ALIGN_MATCH_SCORE = 3.0
 ALIGN_FAR_SCORE = -1.0
 ALIGN_MISMATCH_SCORE = -2.0
@@ -122,6 +128,26 @@ ALIGN_GAP_SCORE = -1.0
 # Same-text pairs farther apart than this are a "far" match, so a chorus repeat
 # is not glued to the wrong verse. A word or two of ASR drift is well inside.
 ALIGN_TIME_GATE_S = 6.0
+# line_duration / asr_span above this (or below its reciprocal) keeps ASR times.
+ALIGN_MAX_STRETCH = 1.25
+# A single matched word may slide onto its lyric estimate by at most this much.
+ALIGN_MAX_SHIFT_S = 0.75
+# A lyrics-only token with no neighbour on one side is this long, packed against
+# the neighbour that does exist, instead of being spread across the rest of the card.
+ALIGN_PACK_WORD_S = 0.40
+# Pull a window onto the vocal peak within this radius when the peak is clearly
+# louder than the estimated centre. Wider than a syllable, and it grabs the
+# next word. A span already longer than one syllable keeps its own start:
+# recentring it lands the mute on a later syllable.
+SNAP_RADIUS_MS = 180
+SNAP_PEAK_RATIO = 1.4
+SNAP_LONG_SPAN_S = 0.25
+# A lyrics-only slot often starts on a later syllable. Short ASR fragments
+# just before it are the opening syllables of the same word. Walk back across
+# them, but stop at a gap or at this cap so the previous word stays audible.
+ONSET_FRAGMENT_MAX_S = 0.16
+ONSET_FRAGMENT_GAP_S = 0.10
+ONSET_PULL_MAX_S = 0.35
 
 # --- Paths ----------------------------------------------------------------------
 
@@ -177,8 +203,17 @@ SSE_KEEPALIVE_S = 15.0
 # read into memory or silently filling the disk.
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 MAX_UPLOAD_BYTES = 4 * 1024**3
-# How often a running job wakes up just to re-publish its snapshot, so a client that
-# missed an event still converges.
+# Wall-clock cap for one worker subprocess. Separation prints almost nothing on
+# stdout until it finishes, so this is not an idle timeout. It only stops a stage
+# that has actually hung.
+WORKER_TIMEOUT_S = 45 * 60
+# A vocal stem quieter than this is treated as "no vocals", not as a successful mute.
+VOCAL_MIN_RMS = 1e-4
+# Speech-model download. One connection is too slow at 2.5 GB, and the Xet
+# transport stalled on this machine, so the file is fetched as parallel HTTP
+# ranges from the CDN. See docs/SPIKE_B_ASR.md.
+ASR_DOWNLOAD_PARALLEL = 8
+ASR_DOWNLOAD_CHUNK_BYTES = 16 * 1024 * 1024
 
 # --- Preview clips --------------------------------------------------------------
 # Per-flag A/B preview length either side of the flagged word.

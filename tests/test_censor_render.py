@@ -102,8 +102,11 @@ def test_export_of_an_over_full_scale_mix_stays_close_to_the_mix(tmp_path, stems
     # Peaks above full scale, as a decoded AAC mix really has. Scale by the peak *outside*
     # the windows, otherwise the loudest sample is the one the subtraction removes.
     outside = np.ones(len(stems["mix"]), dtype=bool)
+    # The mute starts CENSOR_LEAD_MS before each detected span. That region is
+    # inside the window, so it cannot be part of the "outside" comparison.
+    lead = int(config.CENSOR_LEAD_MS / 1000 * RATE)
     for start, end in SPANS:
-        outside[int(start * RATE) : int(end * RATE)] = False
+        outside[max(0, int(start * RATE) - lead) : int(end * RATE)] = False
     peak = float(np.abs(stems["mix"][outside]).max())
     loud = (stems["mix"] / peak * 1.2).astype(np.float32)
     assert float(np.abs(loud).max()) > 1.0

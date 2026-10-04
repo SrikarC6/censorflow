@@ -541,7 +541,25 @@ def test_web_files_are_served_with_no_cache(
 def test_the_web_app_files_are_all_served(tmp_path: Path) -> None:
     store = jobs.JobStore(root=tmp_path / "jobs", backend_factory=FakeBackend)
     with TestClient(server.create_app(store=store)) as test_client:
-        for name in ("index.html", "app.js", "api.js", "ui.js", "flipdisc.js", "font5x7.js", "style.css"):
+        for name in (
+            "index.html",
+            "app.js",
+            "api.js",
+            "ui.js",
+            "flipdisc.js",
+            "font5x7.js",
+            "font-glyphs.js",
+            "screens.js",
+            "session.js",
+            "review.js",
+            "review-dom.js",
+            "stems.js",
+            "model.js",
+            "board-paint.js",
+            "board-controls.js",
+            "board-field.js",
+            "style.css",
+        ):
             response = test_client.get(f"/{name}")
             assert response.status_code == 200, name
             assert response.content, name

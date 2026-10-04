@@ -59,6 +59,19 @@ class TestWarp:
         assert aligned[1].start == pytest.approx(12.0 + shift)
         assert aligned[1].end == pytest.approx(12.3 + shift)
 
+    def test_a_long_lyric_card_does_not_stretch_a_short_phrase(self) -> None:
+        # The line stays up for 10 s; the phrase is under a second. Stretching
+        # it to the card would park the mute in the gap.
+        words = _words(("alpha", 1.0, 1.2), ("snork", 1.3, 1.5), ("charlie", 1.6, 1.8))
+        aligned = align_words(words, [_line("alpha snork charlie", 0.0, 10.0)])
+        assert aligned[1].start == pytest.approx(1.3)
+        assert aligned[1].end == pytest.approx(1.5)
+
+    def test_a_single_match_will_not_jump_across_a_long_line(self) -> None:
+        words = _words(("snork", 1.2, 1.4))
+        aligned = align_words(words, [_line("aaaa snork", 0.0, 8.0)])
+        assert aligned[0].start == pytest.approx(1.2)
+
     def test_word_level_spans_win_when_the_counts_match(self) -> None:
         line = _line(
             "alpha snork charlie",
@@ -75,11 +88,19 @@ class TestWarp:
 class TestTokenSpans:
     def test_a_missed_token_is_interpolated_between_neighbours(self) -> None:
         line = _line("alpha zzapp charlie", 10.0, 13.0)
-        words = _words(("alpha", 10.0, 10.4), ("charlie", 12.4, 13.0))
+        words = _words(("alpha", 10.0, 10.4), ("charlie", 11.0, 11.3))
         spans = token_spans(line, ["alpha", "zzapp", "charlie"], words)
         assert spans[1][0] == "zzapp"
         assert spans[1][1] == pytest.approx(10.4)
-        assert spans[1][2] == pytest.approx(12.4)
+        assert spans[1][2] == pytest.approx(11.0)
+
+    def test_a_missed_token_after_the_phrase_stays_with_the_phrase(self) -> None:
+        # The card runs to 10 s. The only sung anchor ends at 1.2 s, so the
+        # missing word belongs just after it, not in the middle of the card.
+        line = _line("alpha zzapp", 0.0, 10.0)
+        spans = token_spans(line, ["alpha", "zzapp"], words=_words(("alpha", 1.0, 1.2)))
+        assert spans[1][1] == pytest.approx(1.2)
+        assert spans[1][2] < 2.0
 
     def test_no_overlapping_words_falls_back_to_length_weights(self) -> None:
         line = _line("a zzapp", 0.0, 3.0)

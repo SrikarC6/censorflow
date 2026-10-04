@@ -26,12 +26,37 @@ APP_FILE = config.WEB_DIR / "app.js"
 BOARD_FILE = config.WEB_DIR / "flipdisc.js"
 INDEX_FILE = config.WEB_DIR / "index.html"
 
-STYLES = ("ui.js", "app.js", "review.js")
+STYLES = (
+    "ui.js",
+    "app.js",
+    "screens.js",
+    "session.js",
+    "review.js",
+    "review-dom.js",
+    "stems.js",
+    "model.js",
+    "board-paint.js",
+    "board-controls.js",
+    "board-field.js",
+)
 REVIEW_FILE = config.WEB_DIR / "review.js"
+# The flow used to live in app.js. Painters are screens.js; clicks are session.js.
+FLOW_FILES = ("app.js", "screens.js", "session.js")
+REVIEW_FILES = ("review.js", "review-dom.js")
 
 
 def _read(name: str) -> str:
     return (config.WEB_DIR / name).read_text(encoding="utf-8")
+
+
+def _flow() -> str:
+    """app.js plus the two modules it was split into, in import order."""
+    return "\n".join(_read(name) for name in FLOW_FILES)
+
+
+def _review() -> str:
+    """review.js plus the HTML builders it was split into."""
+    return "\n".join(_read(name) for name in REVIEW_FILES)
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +88,7 @@ def test_every_path_the_client_asks_for_is_a_route() -> None:
         "/api/jobs/{job_id}/clip",
         "/api/jobs/{job_id}/output",
         "/api/jobs/{job_id}/original",
+        "/api/models/asr",
     }
     used = _calls(_read("api.js"))
     assert used, "no paths found in api.js at all"
@@ -99,9 +125,9 @@ def test_an_upload_uses_xmlhttprequest_because_fetch_cannot_report_progress() ->
 
 
 def _listed_stages() -> list[str]:
-    text = _read("app.js")
+    text = _read("screens.js")
     listed = re.search(r"const STAGES = \[([^\]]*)\]", text)
-    assert listed is not None, "app.js no longer declares STAGES"
+    assert listed is not None, "screens.js no longer declares STAGES"
     return [item.strip().strip("\"'") for item in listed.group(1).split(",") if item.strip()]
 
 
@@ -128,10 +154,10 @@ def test_the_stages_are_listed_in_the_order_they_run() -> None:
     assert _listed_stages() == [stage for stage in order if stage != "rendering"]
 
 
-# Screens are registered and shown from two modules: app.js owns the flow and
-# review.js owns the review and render screens, because the review screen is dense
-# HTML and has no business inflating a file that is already over the size guidance.
-SCREEN_MODULES = ("app.js", "review.js")
+# Screens are registered and shown from several modules: screens.js owns the flow,
+# session.js shows a screen when a job event arrives, review.js owns the review
+# and render screens, and stems.js owns the skeleton.
+SCREEN_MODULES = ("app.js", "screens.js", "session.js", "review.js", "stems.js")
 
 # A screen that nothing can reach is dead code that still looks finished.
 PENDING_SCREENS: dict[str, str] = {}
@@ -147,16 +173,32 @@ def test_every_screen_a_button_can_reach_is_registered() -> None:
     assert unreachable == set(PENDING_SCREENS), f"registered but never shown: {unreachable}"
 
 
-def test_the_stems_mode_is_a_notice_and_not_a_request() -> None:
-    # The stem routes answer 501; the button must not pretend otherwise.
+def test_the_stems_mode_opens_a_screen_and_does_not_request() -> None:
+    # The stem routes answer 501. The button opens the skeleton screen.
     body = _read("app.js").split("const stemsMode = board.button({", 1)[1]
     body = body.split("\n});", 1)[0]
-    assert "TONE_STOP" in body
+    assert "ui.show('stems')" in body
     assert "api." not in body
+    screen = _read("stems.js")
+    assert "setEnabled(false)" in screen
+    assert "COMING SOON" in screen
+    assert "api." not in screen
+    checklist = (config.PROJECT_DIR / "docs" / "STEMS_TODO.md").read_text(encoding="utf-8")
+    for line in (
+        "0-200 %",
+        "mute and isolate",
+        "Keys 1-4",
+        "Waveform scrubber",
+        "Snippet mode",
+        "Fast and Pro",
+        "Batch folder",
+        "Independent stem download",
+    ):
+        assert line in checklist
 
 
 def test_the_processing_screen_lights_the_stage_the_job_is_in() -> None:
-    body = _read("app.js").split("ui.register('processing'", 1)[1].split("\n});", 1)[0]
+    body = _read("screens.js").split("ui.register('processing'", 1)[1].split("\n});", 1)[0]
     assert "snapshot.state === stage" in body
     assert "TONE_GO" in body
 
@@ -201,12 +243,12 @@ def test_buttons_are_centred_from_their_own_width_and_not_guessed() -> None:
     assert "handle.width" in body
     assert "handle.label" not in body, "the label length is not the button width"
     # No screen may go back to guessing a column from the half-width of its label.
-    for name in ("app.js", "review.js"):
+    for name in ("app.js", "screens.js", "review.js", "stems.js"):
         assert "h.cols() / 2" not in _read(name), name
 
 
 def test_every_button_row_is_centred_through_the_helper() -> None:
-    for name in ("app.js", "review.js"):
+    for name in ("screens.js", "review.js", "stems.js"):
         calls = re.findall(r"h\.buttonRow\(.*?\);", _read(name), re.DOTALL)
         assert calls, f"{name} places no button rows"
         for call in calls:
@@ -229,18 +271,18 @@ def test_a_tight_window_drops_rows_rather_than_stacking_controls() -> None:
     assert "tight(tall)" in ui
     assert "board.rows - NOTICE_ROWS - tall < MIN_USABLE_ROWS" in ui
     assert "const MIN_USABLE_ROWS = 60;" in ui
-    app = _read("app.js")
-    assert app.count("h.tight(") >= 3
+    screens = _read("screens.js")
+    assert screens.count("h.tight(") >= 3
     # Every screen with more than one row of controls asks.
-    assert "h.tight(BLOCK.mode)" in app
-    assert "h.tight(BLOCK.awaiting)" in app
-    assert "h.tight(BLOCK.result)" in app
+    assert "h.tight(BLOCK.mode)" in screens
+    assert "h.tight(BLOCK.awaiting)" in screens
+    assert "h.tight(BLOCK.result)" in screens
 
 
 def test_the_install_is_checked_before_the_user_picks_a_song() -> None:
     # ffmpeg is a hard requirement and the model is a large download; both are
     # cheaper to find here than three stages into a job.
-    app = _read("app.js")
+    app = _flow()
     body = app.split("async function checkInstall()", 1)[1].split("\n}", 1)[0]
     assert "api.health()" in body
     assert "report.reason" in body
@@ -249,7 +291,7 @@ def test_the_install_is_checked_before_the_user_picks_a_song() -> None:
 
 
 def test_an_unreachable_server_is_not_reported_as_a_broken_install() -> None:
-    body = _read("app.js").split("async function checkInstall()", 1)[1].split("\n}", 1)[0]
+    body = _flow().split("async function checkInstall()", 1)[1].split("\n}", 1)[0]
     assert "catch" in body
     assert body.index("catch") < body.index("report.reason")
 
@@ -263,7 +305,7 @@ def test_a_toned_sign_tints_its_lettering_and_not_only_its_border() -> None:
     for name in ("sign", "notice"):
         body = ui.split(f"    {name}(", 1)[1].split("\n    },", 1)[0]
         assert "ink: toneInk(tone)" in body, name
-    board = _read("flipdisc.js")
+    board = _read("board-controls.js")
     progress = board.split("function progress(", 1)[1].split("\n  }", 1)[0]
     assert "ink:" in progress
 
@@ -271,7 +313,7 @@ def test_a_toned_sign_tints_its_lettering_and_not_only_its_border() -> None:
 def test_a_button_is_created_once_and_placed_by_the_painter() -> None:
     # Creating a handle inside a painter leaks one per redraw, which is how the
     # buttons stopped responding once already.
-    app = _read("app.js")
+    app = _flow()
     handles = re.findall(r"const (\w+) = board\.button\(\{", app)
     assert handles, "no buttons declared"
     assert len(handles) == len(set(handles)), "a button handle is declared twice"
@@ -286,7 +328,7 @@ def test_a_button_is_created_once_and_placed_by_the_painter() -> None:
 def test_every_screen_that_draws_buttons_places_them_all() -> None:
     # A screen that forgets to place a button shows nothing rather than failing
     # loudly, so the button list of each painter is compared with the module list.
-    app = _read("app.js")
+    app = _flow()
     handles = set(re.findall(r"const (\w+) = board\.button\(\{", app))
     for name in re.findall(r"ui\.register\('([a-z]+)'", app):
         body = app.split(f"ui.register('{name}'", 1)[1].split("\nui.register", 1)[0]
@@ -313,12 +355,21 @@ def test_every_name_app_js_imports_is_actually_exported() -> None:
         for name in names.split(","):
             imported.add(name.strip())
     exported: set[str] = set()
-    for name in ("api.js", "ui.js", "flipdisc.js", "review.js"):
+    for name in (
+        "api.js",
+        "ui.js",
+        "flipdisc.js",
+        "review.js",
+        "stems.js",
+        "model.js",
+        "screens.js",
+        "session.js",
+    ):
         exported |= set(re.findall(r"export (?:async )?function (\w+)", _read(name)))
         exported |= set(re.findall(r"export class (\w+)", _read(name)))
         exported |= set(re.findall(r"export const (\w+)", _read(name)))
-    # `api` is a namespace import, checked separately.
-    assert "api" in app
+    # The API is a namespace import in the module that actually calls it.
+    assert "import * as api from './api.js'" in _read("session.js")
     missing = {name for name in imported if name} - exported
     assert not missing, f"app.js imports names nothing exports: {missing}"
 
@@ -359,9 +410,10 @@ def test_the_file_input_is_hidden_but_not_unreachable() -> None:
 
 
 def test_the_board_has_no_animation_loop() -> None:
-    board = _read("flipdisc.js")
-    assert "requestAnimationFrame" not in board
-    assert "setInterval" not in board
+    for name in ("flipdisc.js", "board-paint.js", "board-controls.js", "board-field.js"):
+        board = _read(name)
+        assert "requestAnimationFrame" not in board, name
+        assert "setInterval" not in board, name
 
 
 def test_the_screens_do_not_animate_either() -> None:
@@ -373,7 +425,19 @@ def test_the_screens_do_not_animate_either() -> None:
 
 
 def test_no_debug_output_was_left_in_the_web_sources() -> None:
-    for name in ("api.js", "ui.js", "app.js", "review.js", "flipdisc.js"):
+    for name in (
+        "api.js",
+        "ui.js",
+        "app.js",
+        "screens.js",
+        "session.js",
+        "review.js",
+        "review-dom.js",
+        "flipdisc.js",
+        "board-paint.js",
+        "board-controls.js",
+        "board-field.js",
+    ):
         text = _read(name)
         assert "console.log" not in text, name
         assert "debugger" not in text, name
@@ -390,7 +454,7 @@ def test_the_board_still_offers_a_hit_test_and_a_sounding_surface() -> None:
 
 
 def test_a_job_can_be_picked_back_up_from_the_query_string() -> None:
-    app = _read("app.js")
+    app = _flow()
     assert "new URLSearchParams(window.location.search).get('job')" in app
     assert "api.getJob(id)" in app
     # A job that is waiting for review is picked up at the review screen, not at
@@ -400,7 +464,7 @@ def test_a_job_can_be_picked_back_up_from_the_query_string() -> None:
 
 def test_a_refresh_does_not_throw_away_a_finished_render() -> None:
     """The whole point of coming back to `?job=` is to reach the file you already made."""
-    app = _read("app.js")
+    app = _flow()
     assert "state_ === 'done'" in app
     assert "state.render = state.snapshot.render || state.render;" in app
     assert "ui.show('result')" in app.split("state_ === 'done'", 1)[1].split("awaiting_review", 1)[0]
@@ -410,14 +474,14 @@ def test_a_refresh_does_not_throw_away_a_finished_render() -> None:
 
 def test_the_ab_comparison_falls_back_to_the_served_original() -> None:
     """After a reload the browser's own copy of the upload is gone, not the song."""
-    app = _read("app.js")
+    app = _flow()
     body = app.split("function playSource(kind)", 1)[1].split("\n}", 1)[0]
     assert "state.objectUrl || api.originalUrl(state.job.id)" in body
     assert "/api/jobs/${id}/original" in _read("api.js")
 
 
 def test_the_download_says_the_name_the_file_will_have() -> None:
-    app = _read("app.js")
+    app = _flow()
     body = app.split("function saveOutput()", 1)[1].split("\n}", 1)[0]
     assert "anchor.download = name || ''" in body
     assert "SAVED" in body
@@ -425,7 +489,7 @@ def test_the_download_says_the_name_the_file_will_have() -> None:
 
 
 def test_starting_again_releases_the_object_url_and_the_stream() -> None:
-    body = _read("app.js").split("function startUpload()", 1)[1].split("\n}", 1)[0]
+    body = _flow().split("function startUpload()", 1)[1].split("\n}", 1)[0]
     assert "URL.revokeObjectURL" in body
     assert "state.stopFollowing()" in body
     assert "review.reset()" in body
@@ -439,12 +503,13 @@ def test_the_review_screen_is_asked_for_and_shown_from_app_js() -> None:
     app = _read("app.js")
     assert "import { registerReview } from './review.js'" in app
     # The job reaching `awaiting_review` goes straight to the review screen; there
-    # is no "press a button to start reviewing" step in between.
-    assert app.count("review.open(") >= 2
+    # is no "press a button to start reviewing" step in between. One call is the
+    # button, the other is picking a job back up.
+    assert _flow().count("review.open(") >= 2
 
 
 def test_the_transcript_can_add_a_missed_flag_by_clicking_a_word() -> None:
-    review = _read("review.js")
+    review = _review()
     # Every word is a button, so a word the model did not hear is one click away
     # from being censored.
     assert "span.className = 'w'" in review
@@ -454,14 +519,14 @@ def test_the_transcript_can_add_a_missed_flag_by_clicking_a_word() -> None:
 
 
 def test_an_existing_flag_is_switched_rather_than_duplicated() -> None:
-    body = _read("review.js").split("function toggleWord(index, flag)", 1)[1]
+    body = _review().split("function toggleWord(index, flag)", 1)[1]
     body = body.split("} else {", 1)[0]
     assert "flag.censor = !flag.censor" in body
     assert "flags.push(" not in body
 
 
 def test_a_flag_row_can_switch_censor_edit_the_word_and_nudge_both_ends() -> None:
-    review = _read("review.js")
+    review = _review()
     assert "box.addEventListener('change'" in review
     assert "field.addEventListener('change'" in review
     assert "flag[edge] = Math.max(0" in review
@@ -471,7 +536,7 @@ def test_a_flag_row_can_switch_censor_edit_the_word_and_nudge_both_ends() -> Non
 
 
 def test_editing_a_word_never_moves_its_timing() -> None:
-    body = _read("review.js").split("field.addEventListener('change'", 1)[1]
+    body = _review().split("field.addEventListener('change'", 1)[1]
     body = body.split("\n    });", 1)[0]
     assert "flag.text = text;" in body
     assert "flag.start" not in body
@@ -479,7 +544,7 @@ def test_editing_a_word_never_moves_its_timing() -> None:
 
 
 def test_a_flag_row_offers_both_previews_and_asks_for_padded_audio() -> None:
-    review = _read("review.js")
+    review = _review()
     assert "preview('original', flag)" in review
     assert "preview('censored', flag)" in review
     assert "api.clipUrl(" in review
@@ -488,7 +553,7 @@ def test_a_flag_row_offers_both_previews_and_asks_for_padded_audio() -> None:
 
 
 def test_a_lyrics_only_flag_says_where_it_came_from_and_to_verify_it() -> None:
-    review = _read("review.js")
+    review = _review()
     assert "const BADGES = { asr: 'ASR', lyrics: 'LYRICS', both: 'BOTH' }" in review
     assert "if (flag.approx)" in review
     assert "verify.textContent = 'VERIFY'" in review

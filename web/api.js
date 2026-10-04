@@ -38,6 +38,16 @@ export async function health() {
   return response.json();
 }
 
+/** Where the speech-model download is. Polled while it runs. */
+export function modelStatus() {
+  return json(fetch('/api/models/asr'));
+}
+
+/** Start the speech-model download. A no-op when the weights are already there. */
+export function startModelDownload() {
+  return json(fetch('/api/models/asr', { method: 'POST' }));
+}
+
 /**
  * Send a file to the server. Upload progress is reported by the browser, which
  * is the only way to show a percentage for a large file: fetch cannot.

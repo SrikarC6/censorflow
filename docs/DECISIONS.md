@@ -223,6 +223,30 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
   like "a", and an estimate is all that is available here. Those flags are marked
   `approx=True` and shown as "verify" in the UI.
 
+## Lyric-line clock (timing fix, then a stretch guard)
+
+- Measured on All Day (311 s, LRCLIB line times, no word sync): 29/42 matched
+  lines are longer than the raw Parakeet phrase by more than 1.5× (median
+  line/ASR span 1.96). Warping those lines moved words off the vocal
+  (fraction of words above 0.7× local vocal p90: 0.34 raw, 0.28 after warp).
+  Parakeet also emitted none of the profane tokens, so every flag was a
+  lyrics-only interpolation inside the stretched line, ~0.9 s from the vocal.
+  Decision: warp only when `line_dur / asr_span` is within `ALIGN_MAX_STRETCH`
+  (1.25); otherwise keep ASR times. A lone match may move at most
+  `ALIGN_MAX_SHIFT_S` (0.75 s). Windows then recentre on a louder vocal frame
+  within `SNAP_RADIUS_MS` (180) when it exceeds `SNAP_PEAK_RATIO` (1.4).
+  A missing token whose only sung neighbour is on one side is packed against
+  that neighbour at `ALIGN_PACK_WORD_S` (0.40 s) instead of being spread to the
+  end of the card: 41 of 55 profane tokens on this track had a left neighbour
+  only.
+  Least-squares gain on the Kim stem (median 1.36) only moved leftover
+  voice-band energy from 0.58 to 0.54 of the mix and was not adopted; bass
+  stayed at 1.0 either way, so the remaining swear is vocal the stem never
+  captured, not a gain problem.
+  Source: local job `20261004-055753` on `samples/01 All Day.m4a` vs
+  `samples/all-day-cleaned.flac`; `scipy.signal.stft` 1.17.1 checked and a
+  stem-guided spectral subtract did no better (voice leftover 0.51–0.56).
+
 ## Lyric-line clock (timing fix)
 
 - **ASR is the tokeniser, timed lyric lines are the clock.** On real tracks LRCLIB has
@@ -231,7 +255,9 @@ Sources are either a verified local API (`python -c "help(...)"`, `--help`) or a
   keeping those times on a `source=both` flag (the old merge rule) muted the neighbouring
   word. Decision: sequence-align ASR tokens to lyric tokens (Needleman-Wunsch, time-gated
   so chorus repeats do not glue to the wrong verse), warp each matched line's ASR span
-  onto `[line.start, line.end]`, interpolate lyrics-only holes between aligned neighbours,
+  onto `[line.start, line.end]` when the line is within `ALIGN_MAX_STRETCH` of the
+  phrase (see the stretch guard above; a longer card keeps ASR times), interpolate
+  lyrics-only holes between aligned neighbours,
   and shift unmatched ad-libs by the median offset. Provider `line.words` still wins when
   the token count matches. No Musixmatch/`syncedlyrics` word-sync (still rejected).
   Source: local observation on `samples/03 Ni__as In Paris.m4a`; spike C `hasWordSync`
@@ -655,6 +681,24 @@ Commits up to and including this point: `32cb486` phase 0, `3f5688f` phase 1, `3
 `859cc5e` phase 3, then the phase 4a iterations (`fdaca21`, `0003226`, `87cb7b7`, `9b45354`,
 `f1a7cbc`, `b1f4ea1`), `e6aab12` phase 4b, `41f99b8` phase 4c, `874d0ad` the dead-button fix, and
 `3937534` the download fixes.
+
+- Speech-model first run uses parallel HTTP `Range` requests (8 x 16 MiB) against the
+  Hugging Face CDN, not `hf download` and not the Xet transport. A live `Range: bytes=0-15`
+  on `model.safetensors` returned 206. The tree listing is
+  `GET /api/models/mlx-community/parakeet-tdt-0.6b-v3/tree/main`. Progress is
+  `GET/POST /api/models/asr`. Source: docs/SPIKE_B_ASR.md and a HEAD/GET against
+  https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/main/model.safetensors
+  on 2026-10-04.
+
+- Every censor window starts `CENSOR_LEAD_MS` (1000) before the ASR-plus-lyrics
+  detection and keeps that detection's end. 200 ms was still late. Source: a
+  second track after the Paris onset fix.
+
+- A lyrics-only slot that already lasts longer than one syllable is not recentred
+  on a later vocal peak, and its start walks back across a run of short ASR
+  fragments (gap under 100 ms, cap 350 ms) so the opening syllables are inside
+  the mute. LRCLIB stays the lyric source. Source: Paris job `20261004-073654`
+  (`has_word_sync=false`, every flag `source=lyrics`).
 
 - A cleaned export keeps the source file's tags and cover art. ffmpeg remuxes the
   finished audio with `-map_metadata 1` from the job's `original.*`, and maps only an

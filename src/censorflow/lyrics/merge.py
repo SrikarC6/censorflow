@@ -8,7 +8,9 @@ lyric-line clock. This module only decides *which* flags to keep or add.
   The window stays on the (already aligned) word; merge does not retime it.
 - A profane word in the lyrics that the ASR did **not** hear becomes a new flag with
   `source=lyrics` and `approx=True`. Timing comes from provider word spans, neighbouring
-  aligned words, or a proportional split of the line.
+  aligned words, or a proportional split of the line. A run of short ASR fragments
+  just before that slot is the opening of the same word, so the start walks back
+  across it.
 
 A lyric token is matched to an ASR flag by whole token, by normalised form, and only
 when the flag starts within `_MATCH_SLACK_S` of the estimated position.
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import logging
 
+from .. import config
 from ..models import SOURCE_ASR, SOURCE_BOTH, SOURCE_LYRICS, Flag, LyricLine, Word
 from ..profanity import detect
 from .align import token_spans
@@ -123,6 +126,7 @@ def _cross_check(
                 continue
             if _same_moment(start, flags) or _same_moment(start, additions):
                 continue
+            start = _cover_leading_fragments(words, start)
             additions.append(
                 Flag(
                     word_index=-1,
@@ -136,6 +140,33 @@ def _cross_check(
                 )
             )
     return upgrades, additions
+
+
+def _cover_leading_fragments(words: list[Word], start: float) -> float:
+    """Move `start` back across the short ASR pieces that lead into it.
+
+    A long word the model will not spell comes out as a chain of ~80 ms
+    fragments, and the lyric slot lands on a later one. Walking back across
+    that chain covers the opening syllables. A gap, a real-length word, or
+    `ONSET_PULL_MAX_S` is the previous word, and the walk stops there.
+    """
+    pulled = start
+    cursor = start
+    leading = sorted(
+        (word for word in words if word.start < start),
+        key=lambda word: word.start,
+        reverse=True,
+    )
+    for word in leading:
+        if word.end - word.start > config.ONSET_FRAGMENT_MAX_S:
+            break
+        if cursor - word.end > config.ONSET_FRAGMENT_GAP_S:
+            break
+        if start - word.start > config.ONSET_PULL_MAX_S:
+            break
+        pulled = word.start
+        cursor = word.start
+    return max(0.0, pulled)
 
 
 def _match_flag(

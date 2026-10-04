@@ -1,24 +1,13 @@
 /**
  * The review screen: the transcript, the table of flags, and the Render button.
  *
- * This is the one screen where the dot board is not the interface. A transcript is
- * two hundred words of small type and a flag row is seven columns of figures -
- * dot-drawing either would be unreadable - so both are real HTML sitting over the
- * canvas, in the monospace face, and only the title, the count and the buttons are
- * drawn as signs. That split is the rule `AGENTS.md` sets: dot-matrix for titles,
- * buttons, status and progress; HTML for anything dense.
- *
- * The user is the authority here. Everything on this screen edits a local copy of
- * the flags; nothing is sent until Render, and `censor` is sent exactly as the
- * checkboxes left it, so a word that is not on the list can still be censored and
- * one that is can be let through.
+ * The HTML of the transcript and the table is built in review-dom.js. This
+ * module owns the flags, talks to the server, and draws the board buttons.
  */
 import * as api from './api.js';
 import { TONE_GO, TONE_PLAIN, TONE_STOP } from './flipdisc.js';
+import { createReviewDom } from './review-dom.js';
 import { NOTICE_ROWS, state } from './ui.js';
-
-/** One press of a nudge button moves a window edge by this many seconds. */
-const NUDGE_S = 0.01;
 
 /**
  * Audio either side of a word when previewing it, in seconds.
@@ -28,21 +17,8 @@ const NUDGE_S = 0.01;
  */
 const PREVIEW_PAD_S = 1.5;
 
-/** Mirrors `censorflow.models.SOURCE_ASR`: a word added by clicking is ASR's. */
-const SOURCE_ASR = 'asr';
-
-/** How each source is named in the table. */
-const BADGES = { asr: 'ASR', lyrics: 'LYRICS', both: 'BOTH' };
-
 /** The fields the server reads from a flag, in the order it validates them. */
 const SENT = ['word_index', 'text', 'start', 'end', 'source', 'confidence', 'approx', 'censor'];
-
-/** Seconds as `m:ss.mmm`, which is what a nudge button reads best at. */
-function stamp(seconds) {
-  const safe = Math.max(0, Number(seconds) || 0);
-  const minutes = Math.floor(safe / 60);
-  return `${minutes}:${(safe - minutes * 60).toFixed(3).padStart(6, '0')}`;
-}
 
 /**
  * Wire the review screens into `ui`.
@@ -75,226 +51,23 @@ export function registerReview(ui, { say, startUpload, status }) {
     onClick: () => startUpload(),
   });
 
-  /** A small amber-on-black button, for the dense rows rather than the board. */
-  function mini(label, onClick, className = '') {
-    const node = document.createElement('button');
-    node.type = 'button';
-    node.className = className ? `mini ${className}` : 'mini';
-    node.textContent = label;
-    node.addEventListener('click', onClick);
-    return node;
-  }
-
-  function cell(node) {
-    const td = document.createElement('td');
-    if (node) td.append(node);
-    return td;
-  }
-
-  function cellText(text, className) {
-    const td = document.createElement('td');
-    td.textContent = text;
-    if (className) td.className = className;
-    return td;
-  }
-
-  /** The header: what was heard, how much of it, and what the flags say. */
-  function buildHead() {
-    const head = document.createElement('div');
-    head.className = 'review-head';
-    const track = data.track || {};
-    const title = document.createElement('strong');
-    title.textContent = track.title || track.filename || 'this song';
-    const facts = document.createElement('span');
-    facts.className = 'muted';
-    facts.textContent = [
-      `${stamp(data.duration)} long`,
-      `${data.words.length} words heard`,
-      data.lyrics_found ? `${data.lyric_lines} lyric lines cross-checked` : 'no lyrics found',
-    ].join('  ·  ');
-    const spacer = document.createElement('div');
-    spacer.className = 'review-spacer';
-    head.append(title, facts, spacer);
-    return head;
-  }
-
-  /**
-   * The transcript. Every word is clickable, which is how a miss is added.
-   *
-   * A word the server flagged is marked; clicking it switches censoring off.
-   * A word it did not flag gets a new flag, timed from the word itself.
-   */
-  function buildTranscript() {
-    const wrap = document.createElement('div');
-    wrap.className = 'transcript';
-    const byIndex = new Map();
-    for (const flag of flags) if (flag.word_index >= 0) byIndex.set(flag.word_index, flag);
-    data.words.forEach((word, index) => {
-      const flag = byIndex.get(index);
-      const span = document.createElement('button');
-      span.type = 'button';
-      span.className = 'w';
-      span.textContent = word.text;
-      span.title = `${stamp(word.start)}  confidence ${(word.confidence ?? 0).toFixed(2)}`;
-      if (flag) {
-        span.classList.add('flag');
-        if (!flag.censor) span.classList.add('off');
-        if (flag.approx) span.classList.add('approx');
-      }
-      span.addEventListener('click', () => toggleWord(index, flag));
-      wrap.append(span, document.createTextNode(' '));
-    });
-    return wrap;
-  }
-
-  /** Toggle a word: an existing flag switches, an unflagged word gains one. */
-  function toggleWord(index, flag) {
-    if (flag) {
-      flag.censor = !flag.censor;
-    } else {
-      const word = data.words[index];
-      flags.push({
-        word_index: index,
-        text: word.text,
-        start: word.start,
-        end: word.end,
-        source: SOURCE_ASR,
-        confidence: word.confidence ?? 0,
-        approx: false,
-        // The server recomputes whether this is profane and reports it back; until
-        // then the badge has to admit it does not know.
-        profane: null,
-        censor: true,
-      });
-    }
-    refresh();
-  }
-
-  /** A checkbox, so the switch is the same gesture in the table as in the text. */
-  function censorBox(flag) {
-    const box = document.createElement('input');
-    box.type = 'checkbox';
-    box.checked = flag.censor;
-    box.setAttribute('aria-label', `censor ${flag.text}`);
-    box.addEventListener('change', () => {
-      flag.censor = box.checked;
+  const dom = createReviewDom({
+    get flags() {
+      return flags;
+    },
+    get data() {
+      return data;
+    },
+    say,
+    ui,
+    refresh() {
       refresh();
-    });
-    return box;
-  }
+    },
+    preview(kind, flag) {
+      preview(kind, flag);
+    },
+  });
 
-  /** The word's text, editable: ASR mishears, and a mishearing is not a censor. */
-  function wordField(flag) {
-    const field = document.createElement('input');
-    field.type = 'text';
-    field.className = 'word';
-    field.value = flag.text;
-    field.setAttribute('aria-label', 'flagged word');
-    // `change`, not `input`: the server judges profanity from the committed text,
-    // and rebuilding the table on every keystroke would eat the caret.
-    field.addEventListener('change', () => {
-      const text = field.value.trim();
-      if (!text) {
-        field.value = flag.text;
-        say('a flag needs a word', TONE_STOP);
-        return;
-      }
-      flag.text = text;
-      flag.profane = null;
-      refresh();
-    });
-    return field;
-  }
-
-  /** A start or end time, with the two nudge buttons AGENTS.md asks for. */
-  function timeCell(flag, edge) {
-    const td = document.createElement('td');
-    const readout = document.createElement('span');
-    readout.className = 't';
-    const show = () => {
-      readout.textContent = stamp(flag[edge]);
-    };
-    const nudge = (direction) => () => {
-      flag[edge] = Math.max(0, Number((flag[edge] + direction * NUDGE_S).toFixed(6)));
-      // Nudging an edge must never invert the window: `end` stops at `start`.
-      if (flag.end <= flag.start) flag.end = flag.start + NUDGE_S;
-      show();
-      say(`${flag[edge === 'start' ? 'start' : 'end']} moved to ${stamp(flag[edge])}`);
-      ui.refresh();
-    };
-    show();
-    td.append(
-      readout,
-      mini('−', nudge(-1)),
-      mini('+', nudge(1)),
-    );
-    td.dataset.edge = edge;
-    return td;
-  }
-
-  /** The source badge, plus a marker when the timing was estimated. */
-  function sourceCell(flag) {
-    const td = document.createElement('td');
-    const badge = document.createElement('span');
-    badge.className = `badge ${flag.source}`;
-    badge.textContent = BADGES[flag.source] || flag.source.toUpperCase();
-    td.append(badge);
-    if (flag.approx) {
-      const verify = document.createElement('span');
-      verify.className = 'verify';
-      verify.textContent = 'VERIFY';
-      td.append(verify);
-    }
-    return td;
-  }
-
-  /**
-   * What the server thinks of the word.
-   *
-   * `null` means "not asked yet": editing a word's text cannot be judged in the
-   * browser without shipping the whole word list over and reimplementing the
-   * detection, so the badge says `?` until the next round trip reports back.
-   */
-  function verdictCell(flag) {
-    const known = typeof flag.profane === 'boolean';
-    return cellText(known ? (flag.profane ? 'ON THE LIST' : 'NOT ON THE LIST') : '?', 'verdict');
-  }
-
-  /** Play this flag's neighbourhood, with and without the censor applied. */
-  function previewCell(flag) {
-    const td = document.createElement('td');
-    td.append(
-      mini('hear it', () => preview('original', flag), 'plain'),
-      mini('hear it muted', () => preview('censored', flag), 'plain'),
-    );
-    return td;
-  }
-
-  function buildTable() {
-    const table = document.createElement('table');
-    table.className = 'grid flags';
-    const head = document.createElement('tr');
-    for (const label of ['', 'word', 'start', 'end', 'source', 'verdict', 'hear']) {
-      const th = document.createElement('th');
-      th.textContent = label;
-      head.append(th);
-    }
-    table.append(head);
-    flags.forEach((flag) => {
-      const row = document.createElement('tr');
-      row.append(
-        cell(censorBox(flag)),
-        cell(wordField(flag)),
-        timeCell(flag, 'start'),
-        timeCell(flag, 'end'),
-        sourceCell(flag),
-        verdictCell(flag),
-        previewCell(flag),
-      );
-      table.append(row);
-    });
-    return table;
-  }
 
   /**
    * Rebuild the HTML, then redraw the board.
@@ -305,7 +78,7 @@ export function registerReview(ui, { say, startUpload, status }) {
   function refresh() {
     if (!panel) return;
     const top = panel.scrollTop;
-    panel.replaceChildren(buildHead(), buildTranscript(), buildTable());
+    panel.replaceChildren(dom.buildHead(), dom.buildTranscript(), dom.buildTable());
     panel.scrollTop = top;
     ui.refresh();
   }

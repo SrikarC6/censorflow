@@ -91,7 +91,7 @@ stderr is captured to `logs/<job>/<stage>.log`. The parent only reads stdout. Th
 1. **Decode.** ffmpeg decodes any input to 44.1 kHz stereo float32 (`mix`). Validate with ffprobe, not the file extension. Support everything ffmpeg can read: mp3, m4a (AAC and ALAC), ogg, opus, flac, wav, aiff, wma, and so on.
 2. **Separate.** Two stems, `vocals` and `instrumental`, via the separator interface. Assert stem length matches `mix` (pad or trim up to 2048 samples; warn above that).
 3. **Transcribe.** Run ASR on the vocal stem (mono, 16 kHz as the model needs). ASR is the source of truth for *which* tokens were sung (and for words the lyrics omit). Output `Word(text, start, end, confidence, source)`.
-4. **Lyrics (best effort, never blocking).** Read tags with mutagen. Query LRCLIB and `syncedlyrics`. Timed lyric *lines* are the clock: `align_words` warps ASR start/end onto each line's start/end. Lyrics also add tokens ASR missed. If lookup fails, continue with ASR alone.
+4. **Lyrics (best effort, never blocking).** Read tags with mutagen. Query LRCLIB and `syncedlyrics`. When a lyric line is about as long as the sung phrase, `align_words` warps ASR start/end onto that line. A much longer line keeps the ASR times, so a mute is not stretched into the gap. Lyrics also add tokens ASR missed, placed between the neighbouring sung words. If lookup fails, continue with ASR alone.
 5. **Detect.** Normalize words and match against the profanity list. Output `Flag(word_index, start, end, source, confidence, approx, censor=True)`.
 6. **Review (pause).** The job stops in state `awaiting_review` until the user confirms. `--auto` skips the pause.
 7. **Windows, mask, render.** Build windows, build the mask, compute `final = mix - vocals * mask`, export.

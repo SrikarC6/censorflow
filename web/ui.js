@@ -96,6 +96,9 @@ export const state = {
   render: null,
   stopFollowing: null,
   player: null,
+  quality: 'fast',
+  // `present` starts true so the download button does not flash before /api/health.
+  model: { present: true, state: 'idle', pct: 0, message: '' },
 };
 
 export function createUi({ canvas, overlay }) {
@@ -190,7 +193,7 @@ export function createUi({ canvas, overlay }) {
     /** A sign with a progress bar under it. Returns the row below it. */
     meter(text, pct, { row = 0, width = null, tone = TONE_PLAIN } = {}) {
       const span = width ?? Math.min(board.cols - MARGIN * 2, 120);
-      const sign = board.progress({ col: MARGIN, row, cols: span, label: text, pct, tone });
+      const sign = board.progress({ col: MARGIN, row, width: span, label: text, pct, tone });
       return row + sign.rows;
     },
     /** Buttons already created, laid out left to right from a cursor. */
